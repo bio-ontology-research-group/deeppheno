@@ -91,7 +91,7 @@ def main(gene_annots_file, dis_annots_file, sim_file, gene_dis_assoc_file):
     print(len(filtered))
     assoc = assoc[:, filtered]
     sim = sim[:, filtered]
-    
+    print(assoc.shape, np.sum(assoc))
     roc_auc = compute_roc(assoc, sim)
     print(roc_auc)
     

@@ -29,7 +29,10 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 @ck.option(
     '--terms-file', '-tf', default='data/terms.pkl',
     help='Data file with sequences and complete set of annotations')
-def main(train_data_file, test_data_file, terms_file):
+@ck.option(
+    '--out-file', '-tf', default='data/predictions_max.pkl',
+    help='Results file with best Fmax predictions')
+def main(train_data_file, test_data_file, terms_file, out_file):
 
     hp = Ontology('data/hp.obo', with_rels=True)
     terms_df = pd.read_pickle(terms_file)
@@ -98,7 +101,7 @@ def main(train_data_file, test_data_file, terms_file):
             smin = s
     print(f'Fmax: {fmax:0.3f}, Smin: {smin:0.3f}, threshold: {tmax}')
     test_df['hp_preds'] = max_preds
-    test_df.to_pickle('data/predictions_max.pkl')
+    test_df.to_pickle(out_file)
     precisions = np.array(precisions)
     recalls = np.array(recalls)
     sorted_index = np.argsort(recalls)

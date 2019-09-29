@@ -58,8 +58,8 @@ class Ontology(object):
 
     def load(self, filename, with_rels):
         ont = dict()
-        obj = None
         with open(filename, 'r') as f:
+            obj = None
             for line in f:
                 line = line.strip()
                 if not line:
@@ -75,6 +75,8 @@ class Ontology(object):
                     obj['is_obsolete'] = False
                     continue
                 elif line == '[Typedef]':
+                    if obj is not None:
+                        ont[obj['id']] = obj
                     obj = None
                 else:
                     if obj is None:
@@ -96,8 +98,9 @@ class Ontology(object):
                         obj['name'] = l[1]
                     elif l[0] == 'is_obsolete' and l[1] == 'true':
                         obj['is_obsolete'] = True
-        if obj is not None:
-            ont[obj['id']] = obj
+            if obj is not None:
+                ont[obj['id']] = obj
+
         for term_id in list(ont.keys()):
             for t_id in ont[term_id]['alt_ids']:
                 ont[t_id] = ont[term_id]

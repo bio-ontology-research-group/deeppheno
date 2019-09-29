@@ -24,12 +24,12 @@ from sklearn.metrics import roc_curve, auc, matthews_corrcoef
 from aminoacids import MAXLEN, to_onehot
 from utils import Ontology, FUNC_DICT, is_exp_code
 
-logging.basicConfig(filename='logs.log', level=logging.DEBUG)
+from kerastuner.tuners import RandomSearch
+from kerastuner import HyperModel
 
-config = tf.ConfigProto(allow_soft_placement=True)
-config.gpu_options.allow_growth = True
-session = tf.Session(config=config)
-K.set_session(session)
+logging.basicConfig(level=logging.DEBUG)
+
+print("GPU Available: ", tf.test.is_gpu_available())
 
 
 @ck.command()
@@ -71,20 +71,20 @@ K.set_session(session)
 @ck.option(
     '--device', '-d', default='gpu:0',
     help='Prediction threshold')
-@ck.option(
-    '--params-index', '-pi', default=-1,
-    help='Definition mapping file')
 def main(hp_file, data_file, terms_file, gos_file, model_file,
          out_file, split, batch_size, epochs, load, logger_file, threshold,
-         device, params_index):
+         device):
     gos_df = pd.read_pickle(gos_file)
     gos = gos_df['gos'].values.flatten()
     gos_dict = {v: i for i, v in enumerate(gos)}
     
     params = {
         'input_shape': (len(gos),),
-        'optimizer': Adam(0.0001),
-        'loss': 'binary_crossentropy'
+        'nb_layers': 1,
+        'loss': 'binary_crossentropy',
+        'rate': 0.5, # 0.2,
+        'learning_rate': 0.001,
+        'units': 750, # 1500
     }
     
     print('Params:', params)
@@ -99,37 +99,38 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
     train_df, valid_df, test_df = load_data(data_file, terms, split)
     terms_dict = {v: i for i, v in enumerate(terms)}
     nb_classes = len(terms)
+    params['nb_classes'] = nb_classes
     print(len(terms_dict))
     test_steps = int(math.ceil(len(test_df) / batch_size))
     test_generator = DFGenerator(test_df, gos_dict, terms_dict,
                                  batch_size)
+    valid_steps = int(math.ceil(len(valid_df) / batch_size))
+    train_steps = int(math.ceil(len(train_df) / batch_size))
+    train_generator = DFGenerator(train_df, gos_dict, terms_dict,
+                                  batch_size) # len(train_df))
+    x, y = train_generator[0]
+    valid_generator = DFGenerator(valid_df, gos_dict, terms_dict,
+                                  batch_size) # len(valid_df))
+    val_x, val_y = valid_generator[0]
+        
     if load:
         print('Loading pretrained model')
         model = load_model(model_file)
     else:
         print('Creating a new model')
-        model = create_model(nb_classes, params)
-
+        # model = MyHyperModel(params)
+        model = create_model(params)
+        
         print("Training data size: %d" % len(train_df))
         print("Validation data size: %d" % len(valid_df))
         checkpointer = ModelCheckpoint(
             filepath=model_file,
             verbose=1, save_best_only=True)
-        earlystopper = EarlyStopping(monitor='val_loss', patience=6, verbose=1)
+        earlystopper = EarlyStopping(monitor='val_loss', patience=10, verbose=1)
         logger = CSVLogger(logger_file)
 
         print('Starting training the model')
-
-        valid_steps = int(math.ceil(len(valid_df) / batch_size))
-        train_steps = int(math.ceil(len(train_df) / batch_size))
-        train_generator = DFGenerator(train_df, gos_dict, terms_dict,
-                                    batch_size)
-        valid_generator = DFGenerator(valid_df, gos_dict, terms_dict,
-                                      batch_size)
-
         model.summary()
-        # print(model.layers[1].get_weights()[0].shape)
-        # return
         model.fit_generator(
             train_generator,
             steps_per_epoch=train_steps,
@@ -141,12 +142,28 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
             callbacks=[logger, checkpointer, earlystopper])
         logging.info('Loading best model')
         model = load_model(model_file)
-
-
+        
+        # tuner = RandomSearch(
+        #     model,
+        #     objective='val_loss',
+        #     max_trials=50,
+        #     directory='data',
+        #     project_name='pheno')
+        # tuner.search(
+        #     x, y, epochs=100, validation_data=(val_x, val_y),
+        #     callbacks=[earlystopper])
+        # tuner.results_summary()
+        # logging.info('Loading best model')
+        # model = tuner.get_best_models(num_models=1)[0]
+        # model.summary()
+        # loss = model.evaluate(val_x, val_y)
+        # print('Valid loss %f' % loss)
+        # model.save(model_file)
+        
     logging.info('Evaluating model')
     loss = model.evaluate_generator(test_generator, steps=test_steps)
     print('Test loss %f' % loss)
-
+    
     logging.info('Predicting')
     preds = model.predict_generator(test_generator, steps=test_steps, verbose=1)
 
@@ -171,59 +188,6 @@ def compute_roc(labels, preds):
 
     return roc_auc
 
-
-def get_node(node_id, net):
-    name = node_id.split(':')[1]
-    net = Dense(1, activation='sigmoid')(net)
-    return net
-
-def get_layers(inputs):
-    q = deque()
-    layers = {}
-    ROOT = 'HP:0000001'
-    layers[ROOT] = {'net': inputs}
-    for node_id in hp.get_children(ROOT):
-        if node_id in term_set:
-            q.append((node_id, inputs))
-    while len(q) > 0:
-        node_id, net = q.popleft()
-        output = get_node(node_id, net)
-        if node_id not in layers:
-            layers[node_id] = {'net': net, 'output': output}
-            for n_id in hp.get_children(node_id):
-                if n_id in term_set and n_id not in layers:
-                    q.append((n_id, output))
-
-    for node_id in terms:
-        childs = set(hp.get_children(node_id)).intersection(term_set)
-        if len(childs) > 0:
-            outputs = [layers[node_id]['output']]
-            for ch_id in childs:
-                outputs.append(layers[ch_id]['output'])
-            name = node_id.split(':')[1] + '_max'
-            layers[node_id]['output'] = Maximum(name=name)(outputs)
-
-    return layers
-
-
-def create_model(nb_classes, params):
-    inp = Input(shape=params['input_shape'], dtype=np.float32)
-    net = Dense(1000, name='dense', activation='relu')(inp)
-    output = Dense(
-        nb_classes, activation='sigmoid',
-        name='dense_out')(net)
-
-    model = Model(inputs=inp, outputs=output)
-    model.summary()
-    model.compile(
-        optimizer=params['optimizer'],
-        loss=params['loss'])
-    logging.info('Compilation finished')
-
-    return model
-
-
-
 def load_data(data_file, terms, split):
     df = pd.read_pickle(data_file)
     n = len(df)
@@ -243,6 +207,54 @@ def load_data(data_file, terms, split):
     # test_df = pd.read_pickle('data/human_test.pkl')
     return train_df, valid_df, test_df
     
+
+class MyHyperModel(HyperModel):
+
+    def __init__(self, params):
+        self.params = params
+
+    def build(self, hp):
+        inp = Input(shape=self.params['input_shape'], dtype=np.float32)
+        net = inp
+        for i in range(self.params['nb_layers']):
+            net = Dense(
+                units=hp.Int(
+                    'units', min_value=250, max_value=2000, step=250),
+                name=f'dense_{i}', activation='relu')(net)
+            net = Dropout(hp.Choice('rate', values=[0.2, 0.5]))(net)
+        output = Dense(
+            self.params['nb_classes'], activation='sigmoid',
+            name='dense_out')(net)
+
+        model = Model(inputs=inp, outputs=output)
+        model.summary()
+        model.compile(
+            optimizer=Adam(
+                hp.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4])),
+            loss=self.params['loss'])
+        return model
+
+
+def create_model(params):
+    inp = Input(shape=params['input_shape'], dtype=np.float32)
+    net = inp
+    for i in range(params['nb_layers']):
+        net = Dense(
+            units=params['units'], name=f'dense_{i}', activation='relu')(net)
+        net = Dropout(rate=params['rate'])(net)
+    output = Dense(
+        params['nb_classes'], activation='sigmoid',
+        name='dense_out')(net)
+    model = Model(inputs=inp, outputs=output)
+    model.summary()
+    model.compile(
+        optimizer=Adam(lr=params['learning_rate']),
+        loss=params['loss'])
+    logging.info('Compilation finished')
+
+    return model
+
+
 
 class DFGenerator(Sequence):                                                                                                               
                                                                                                                                          
@@ -267,14 +279,14 @@ class DFGenerator(Sequence):
         for i, row in enumerate(df.itertuples()):
             data_seq[i, :] = to_onehot(row.sequences)
             
-            for item in row.deepgo_annotations:
-                t_id, score = item.split('|')
-                if t_id in self.gos_dict:
-                    data_gos[i, self.gos_dict[t_id]] = float(score)
-
-            # for t_id in row.iea_annotations:
+            # for item in row.deepgo_annotations:
+            #     t_id, score = item.split('|')
             #     if t_id in self.gos_dict:
-            #         data_gos[i, self.gos_dict[t_id]] = 1
+            #         data_gos[i, self.gos_dict[t_id]] = float(score)
+
+            for t_id in row.iea_annotations:
+                if t_id in self.gos_dict:
+                    data_gos[i, self.gos_dict[t_id]] = 1
 
             # for t_id in row.go_annotations:
             #     if t_id in self.gos_dict:

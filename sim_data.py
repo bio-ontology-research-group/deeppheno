@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
     '--omim-file', '-dp', default='data/morbidmap.txt',
     help='Data file')
 @ck.option(
-    '--predictions-file', '-pf', default='data/predictions.pkl',
+    '--predictions-file', '-pf', default='data/predictions_max.pkl',
     help='Data file')
 @ck.option(
     '--threshold', '-th', default=0.21,
@@ -43,14 +43,18 @@ def main(hp_file, terms_file, dis_phenotypes, omim_file, predictions_file,
     terms_dict = {v: i for i, v in enumerate(terms)}
 
     diseases = set()
+    genes = set()
     with open(omim_file, 'r') as f:
         for line in f:
             if line.startswith('#'):
                 continue
             it = line.strip().split('\t')
             omim_id = it[0].split(', ')[-1].split()[0]
+            gene_symbols = it[1].split(', ')
+            genes |= set(gene_symbols)
             diseases.add('OMIM:' + omim_id)
-            
+    print(len(diseases), len(genes))
+    return
     dis_annots = {}
     with open(dis_phenotypes) as f:
         for line in f:

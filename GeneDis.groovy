@@ -28,9 +28,9 @@ System.setProperty("jdk.xml.entityExpansionLimit", "0");
 System.setProperty("jdk.xml.totalEntitySizeLimit", "0");
 
 def factory = URIFactoryMemory.getSingleton()
-def annotationsPath = "data/gene_annotations_exp.tab";
+def annotationsPath = "data/gene_annotations.tab";
 def omimPath = "data/dis_annotations.tab";
-def resSimPath = "data/sim_gene_disease_exp.txt";
+def resSimPath = "data/sim_gene_disease.txt";
 
 
 class Gene {
