@@ -1,1 +1,1 @@
-# exome2pheno
+# DeepPheno
