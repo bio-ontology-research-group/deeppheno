@@ -9,9 +9,9 @@ DeepPheno model together with the scripts for evaluating the model's
 performance.
 
 ## Dependencies
-The code was developed and tested using python 3.7.
-To install python dependencies run:
-pip install -r requirements.txt
+* The code was developed and tested using python 3.7.
+* To install python dependencies run:
+  `pip install -r requirements.txt`
 
 ## Data
 * http://bio2vec.net/data/deeppheno - Here you can find the data
