@@ -30,14 +30,16 @@ ORGS = set(['HUMAN', 'MOUSE', ])
 def main(go_file, uniprot_file, filter_exp, prop_annots, out_file):
     go = Ontology(go_file, with_rels=True)
 
-    proteins, accessions, sequences, annotations, interpros, orgs = load_data(uniprot_file)
+    proteins, accessions, sequences, annotations, interpros, orgs, genes, gene_names = load_data(uniprot_file)
     df = pd.DataFrame({
         'proteins': proteins,
         'accessions': accessions,
         'sequences': sequences,
         'annotations': annotations,
         'interpros': interpros,
-        'orgs': orgs
+        'orgs': orgs,
+        'genes': genes,
+        'gene_names': gene_names
     })
 
     # Filter proteins
@@ -74,11 +76,15 @@ def load_data(uniprot_file):
     annotations = list()
     interpros = list()
     orgs = list()
+    genes = list()
+    gene_names = list()
     with gzip.open(uniprot_file, 'rt') as f:
         prot_id = ''
         prot_ac = ''
         seq = ''
         org = ''
+        gene_id = ''
+        names = list()
         annots = list()
         ipros = list()
         for line in f:
@@ -91,10 +97,14 @@ def load_data(uniprot_file):
                     annotations.append(annots)
                     interpros.append(ipros)
                     orgs.append(org)
+                    genes.append(gene_id)
+                    gene_names.append(names)
                 prot_id = items[1]
                 annots = list()
                 ipros = list()
+                names = list()
                 seq = ''
+                gene_id = ''
             elif items[0] == 'AC' and len(items) > 1:
                 prot_ac = items[1]
             elif items[0] == 'OX' and len(items) > 1:
@@ -104,6 +114,20 @@ def load_data(uniprot_file):
                     org = org[:end]
                 else:
                     org = ''
+            elif items[0] == 'GN' and len(items) > 1:
+                items = items[1][:-1].split('; ')
+                for item in items:
+                    if item.startswith('Name='):
+                        names.append(item[5:].split()[0])
+                    elif item.startswith('Synonyms='):
+                        for item in list(item[9:].split(', ')):
+                            names.append(item.split()[0])
+                    elif item.startswith('ORFNames='):
+                        for item in list(item[9:].split(', ')):
+                            names.append(item.split()[0])
+                    elif item.startswith('OrderedLocusNames='):
+                        for item in list(item[9:].split(', ')):
+                            names.append(item.split()[0])
             elif items[0] == 'DR' and len(items) > 1:
                 items = items[1].split('; ')
                 if items[0] == 'GO':
@@ -113,6 +137,8 @@ def load_data(uniprot_file):
                 if items[0] == 'InterPro':
                     ipro_id = items[1]
                     ipros.append(ipro_id)
+                if items[0] == 'GeneID':
+                    gene_id = items[1]
             elif items[0] == 'SQ':
                 seq = next(f).strip().replace(' ', '')
                 while True:
@@ -129,7 +155,9 @@ def load_data(uniprot_file):
         annotations.append(annots)
         interpros.append(ipros)
         orgs.append(org)
-    return proteins, accessions, sequences, annotations, interpros, orgs
+        genes.append(gene_id)
+        gene_names.append(names)
+    return proteins, accessions, sequences, annotations, interpros, orgs, genes, gene_names
 
 
 if __name__ == '__main__':

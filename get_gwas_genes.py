@@ -10,14 +10,14 @@ from bisect import bisect_left
 def main():
     ref = {}
     genes = {}
-    with open('/ibex/scratch/kulmanm/annovar/humandb/hg38_kgXref.txt', 'r') as f:
+    with open('data/hg38_kgXref.txt', 'r') as f:
         for line in f:
             it = line.strip().split('\t')
             x = it[0]
             gene = it[4]
             if gene:
                 ref[x] = gene
-    with open('/ibex/scratch/kulmanm/annovar/humandb/hg38_knownGene.txt', 'r') as f:
+    with open('data/hg38_knownGene.txt', 'r') as f:
         for line in f:
             it = line.strip().split('\t')
             x = it[0]
@@ -51,8 +51,7 @@ def main():
 
         
     gene_list = list()
-    # with open('/encrypted/e3001/runar/misc/GWASs/8oct/E11Genome/E11_--geno_0.1_--maf_0.01.assoc') as f:
-    with open('data/E11.gwas.imputed_v3.both_sexes.tsv') as f:
+    with open('data/E03.gwas.imputed_v3.both_sexes.tsv') as f:
         next(f)
         for line in f:
             it = line.strip().split()
@@ -74,7 +73,7 @@ def main():
     gene_list = list(map(lambda x: x[0], gene_list))
     df = pd.DataFrame({'genes': list(gene_list)})
     print(df)
-    df.to_pickle('data/E11_gwas_genes.pkl')
+    df.to_pickle('data/E03_gwas_genes.pkl')
                 
 if __name__ == '__main__':
     main()

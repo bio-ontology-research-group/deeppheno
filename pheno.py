@@ -201,6 +201,10 @@ def load_data(data_file, terms, split):
     train_df = df.iloc[index[:valid_n]]
     valid_df = df.iloc[index[valid_n:train_n]]
     test_df = df.iloc[index[train_n:]]
+
+    # All Swissprot proteins
+    test_df = pd.read_pickle('data/human_all.pkl')
+    
     # CAFA2 Test data
     # train_df = df.iloc[index[:train_n]]
     # valid_df = df.iloc[index[train_n:]]
@@ -279,14 +283,14 @@ class DFGenerator(Sequence):
         for i, row in enumerate(df.itertuples()):
             data_seq[i, :] = to_onehot(row.sequences)
             
-            # for item in row.deepgo_annotations:
-            #     t_id, score = item.split('|')
-            #     if t_id in self.gos_dict:
-            #         data_gos[i, self.gos_dict[t_id]] = float(score)
-
-            for t_id in row.iea_annotations:
+            for item in row.deepgo_annotations:
+                t_id, score = item.split('|')
                 if t_id in self.gos_dict:
-                    data_gos[i, self.gos_dict[t_id]] = 1
+                    data_gos[i, self.gos_dict[t_id]] = float(score)
+
+            # for t_id in row.iea_annotations:
+            #     if t_id in self.gos_dict:
+            #         data_gos[i, self.gos_dict[t_id]] = 1
 
             # for t_id in row.go_annotations:
             #     if t_id in self.gos_dict:

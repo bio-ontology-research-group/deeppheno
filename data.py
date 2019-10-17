@@ -48,12 +48,16 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
     hp = Ontology(hp_file, with_rels=True)
     print('HP loaded')
     print('Load Gene2prot mapping')
+    df = pd.read_pickle(data_file)
     prot2gene = {}
     with open(id_mapping_file) as f:
         next(f)
         for line in f:
             it = line.strip().split('\t')
             prot2gene[it[2]] = it[0]
+    # for row in df.itertuples():
+    #     if row.genes != '':
+    #         prot2gene[row.proteins] = row.genes
     
     print('Loading HP annotations')
     hp_annots = {}
@@ -88,14 +92,13 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
     for g_id, annots in dg_annots.items():
         deepgo_annots[g_id] = [go_id + '|' + str(score) for go_id, score in annots.items()]
     print('Number of GOs', len(gos))
-    df = pd.DataFrame({'gos': list(gos)})
-    df.to_pickle('data/gos.pkl')
+    gos_df = pd.DataFrame({'gos': list(gos)})
+    gos_df.to_pickle('data/gos.pkl')
 
     go_annots = {}
     iea_annots = {}
     seqs = {}
-    df = pd.read_pickle(data_file)
-
+    
     for i, row in df.iterrows():
         if row.proteins not in prot2gene:
             continue
@@ -132,6 +135,18 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
         iea_annotations.append(iea_annots[g_id])
         deepgo_annotations.append(deepgo_annots[g_id])
         sequences.append(seqs[g_id])
+
+    # for g_id, gos in dg_annots.items():
+    #     genes.append(g_id)
+    #     phenos = set()
+    #     if g_id in hp_annots:
+    #         phenos = hp_annots[g_id]
+    #     hpos.append(phenos)
+    #     go_annotations.append(go_annots[g_id])
+    #     iea_annotations.append(iea_annots[g_id])
+    #     deepgo_annotations.append(deepgo_annots[g_id])
+    #     sequences.append(seqs[g_id])
+    
         
     df = pd.DataFrame(
         {'genes': genes, 'hp_annotations': hpos,
@@ -149,13 +164,15 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
         if val >= min_count:
             terms_set.add(key)
     terms = []
+    labels = []
     for t_id in hp.get_ordered_terms():
         if t_id in terms_set:
             terms.append(t_id)
+            labels.append(hp.get_term(t_id)['name'])
     
     logging.info(f'Number of terms {len(terms)}')
     # Save the list of terms
-    df = pd.DataFrame({'terms': terms})
+    df = pd.DataFrame({'terms': terms, 'labels': labels})
     df.to_pickle(out_terms_file)
 
                 
