@@ -14,7 +14,7 @@ performance.
   `pip install -r requirements.txt`
 
 ## Data
-* http://bio2vec.net/data/deeppheno - Here you can find the data
+* https://bio2vec.cbrc.kaust.edu.sa/data/deeppheno/ - Here you can find the data
 used to train and evaluate our method.
  * data.tar.gz - data folder with latest dataset
  * data-cafa2.tar.gz - CAFA2 challenge dataset
@@ -31,7 +31,7 @@ database format to pandas dataframe.
   between gene and disease phenotypes
 
 ## Running
-* Download all the files from http://bio2vec.net/data/deeppheno/data.tar.gz and place them into data folder
+* Download all the files from https://bio2vec.cbrc.kaust.edu.sa/data/deeppheno/data.tar.gz and place them into data folder
 * run `python pheno.py` to start training the model
 
 ## Citation
