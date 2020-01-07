@@ -30,7 +30,7 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
     '--terms-file', '-tf', default='data/terms.pkl',
     help='Data file with sequences and complete set of annotations')
 @ck.option(
-    '--out-file', '-tf', default='data/predictions_max.pkl',
+    '--out-file', '-of', default='data/predictions_max.pkl',
     help='Results file with best Fmax predictions')
 def main(train_data_file, test_data_file, terms_file, out_file):
 
@@ -66,7 +66,7 @@ def main(train_data_file, test_data_file, terms_file, out_file):
         threshold = t / 100.0
         preds = []
         for i, row in enumerate(test_df.itertuples()):
-            gene_id = row.genes
+            gene_id = row.genes #row.proteins
             annots_dict = {} 
             
             for j, score in enumerate(row.preds):
@@ -84,6 +84,7 @@ def main(train_data_file, test_data_file, terms_file, out_file):
             new_annots = set()
             for hp_id in annots:
                 new_annots |= hp.get_anchestors(hp_id)
+            new_annots.discard('HP:0000001')
             preds.append(new_annots)
         
     
@@ -120,7 +121,7 @@ def main(train_data_file, test_data_file, terms_file, out_file):
     plt.title('Area Under the Precision-Recall curve')
     plt.legend(loc="lower right")
     df = pd.DataFrame({'precisions': precisions, 'recalls': recalls})
-    df.to_pickle(f'PR.pkl')
+    # df.to_pickle(f'PR.pkl')
 
 def compute_roc(labels, preds):
     # Compute ROC curve and ROC area for each class

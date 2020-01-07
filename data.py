@@ -38,7 +38,7 @@ logging.basicConfig(level=logging.INFO)
     '--out-data-file', '-odf', default='data/human.pkl',
     help='Data file')
 @ck.option(
-    '--min-count', '-mc', default=50,
+    '--min-count', '-mc', default=10,
     help='Min count of HP classes for prediction')
 def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
          data_file, string_mapping_file,
@@ -71,7 +71,11 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
                 hp_annots[gene_id] = set()
             if hp.has_term(hp_id):
                 hp_annots[gene_id] |= hp.get_anchestors(hp_id)
-    print('HP Annotations', len(hp_annots))
+    total_annots = 0
+    for g_id, annots in hp_annots.items():
+        annots.discard('HP:0000001')
+        total_annots += len(annots)
+    print('HP Annotations', len(hp_annots), total_annots, (total_annots / len(hp_annots)))
     dg_annots = {}
     gos = set()
     with open(deepgo_annots_file) as f:
@@ -93,7 +97,7 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
         deepgo_annots[g_id] = [go_id + '|' + str(score) for go_id, score in annots.items()]
     print('Number of GOs', len(gos))
     gos_df = pd.DataFrame({'gos': list(gos)})
-    gos_df.to_pickle('data/gos.pkl')
+    # gos_df.to_pickle('data/gos.pkl')
 
     go_annots = {}
     iea_annots = {}
@@ -153,14 +157,16 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
          'go_annotations': go_annotations, 'iea_annotations': iea_annotations,
          'deepgo_annotations': deepgo_annotations,
          'sequences': sequences})
-    df.to_pickle(out_data_file)
+    # df.to_pickle(out_data_file)
     print(f'Number of proteins {len(df)}')
     
     # Filter terms with annotations more than min_count
     terms_set = set()
+    all_terms = []
     for key, val in cnt.items():
         if key == 'HP:0000001':
             continue
+        all_terms.append(key)
         if val >= min_count:
             terms_set.add(key)
     terms = []
@@ -172,9 +178,10 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
     
     logging.info(f'Number of terms {len(terms)}')
     # Save the list of terms
-    df = pd.DataFrame({'terms': terms, 'labels': labels})
-    df.to_pickle(out_terms_file)
-
+    # df = pd.DataFrame({'terms': terms, 'labels': labels})
+    # df.to_pickle(out_terms_file)
+    # df = pd.DataFrame({'terms': all_terms})
+    # df.to_pickle('data/all_terms.pkl')
                 
 
 

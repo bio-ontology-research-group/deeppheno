@@ -11,7 +11,7 @@ from collections import deque
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.layers import (
     Input, Dense, Embedding, Conv1D, Flatten, Concatenate,
-    MaxPooling1D, Dropout, Maximum
+    MaxPooling1D, Dropout, Maximum, Layer
 )
 from tensorflow.keras import backend as K
 from tensorflow.keras.utils import Sequence
@@ -30,6 +30,44 @@ from kerastuner import HyperModel
 logging.basicConfig(level=logging.DEBUG)
 
 print("GPU Available: ", tf.test.is_gpu_available())
+
+from tensorflow.compat.v1 import ConfigProto
+from tensorflow.compat.v1 import InteractiveSession
+
+config = ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.2
+config.gpu_options.allow_growth = True
+session = InteractiveSession(config=config)
+tf.compat.v1.keras.backend.set_session(session)
+
+class HPOLayer(Layer):
+
+    def __init__(self, nb_classes, **kwargs):
+        self.nb_classes = nb_classes
+        self.hpo_matrix = np.zeros((nb_classes, nb_classes), dtype=np.float32)
+        super(HPOLayer, self).__init__(**kwargs)
+
+    def set_hpo_matrix(self, hpo_matrix):
+        self.hpo_matrix = hpo_matrix
+
+    def get_config(self):
+        config = super(HPOLayer, self).get_config()
+        config['nb_classes'] = self.nb_classes
+        return config
+    
+    def build(self, input_shape):
+        assert input_shape[1] == self.nb_classes
+        self.kernel = K.variable(
+            self.hpo_matrix, name='{}_kernel'.format(self.name))
+        self.non_trainable_weights.append(self.kernel)
+        super(HPOLayer, self).build(input_shape)  # Be sure to call this at the end
+
+    def call(self, x):
+        x = tf.keras.backend.repeat(x, self.nb_classes)
+        return tf.math.multiply(x, self.kernel)
+
+    def compute_output_shape(self, input_shape):
+        return [input_shape[0], self.nb_classes, self.nb_classes] 
 
 
 @ck.command()
@@ -52,8 +90,8 @@ print("GPU Available: ", tf.test.is_gpu_available())
     '--out-file', '-o', default='data/predictions.pkl',
     help='Result file with predictions for test set')
 @ck.option(
-    '--split', '-s', default=0.9,
-    help='train/valid split')
+    '--fold', '-f', default=1,
+    help='Fold index')
 @ck.option(
     '--batch-size', '-bs', default=32,
     help='Batch size')
@@ -69,35 +107,40 @@ print("GPU Available: ", tf.test.is_gpu_available())
     '--threshold', '-th', default=0.5,
     help='Prediction threshold')
 @ck.option(
-    '--device', '-d', default='gpu:0',
+    '--device', '-d', default='gpu:1',
     help='Prediction threshold')
 def main(hp_file, data_file, terms_file, gos_file, model_file,
-         out_file, split, batch_size, epochs, load, logger_file, threshold,
+         out_file, fold, batch_size, epochs, load, logger_file, threshold,
          device):
     gos_df = pd.read_pickle(gos_file)
     gos = gos_df['gos'].values.flatten()
     gos_dict = {v: i for i, v in enumerate(gos)}
-    
+
+    # cross validation settings
+    model_file = f'fold{fold}_' + model_file
+    out_file = f'fold{fold}_' + out_file
     params = {
         'input_shape': (len(gos),),
         'nb_layers': 1,
         'loss': 'binary_crossentropy',
         'rate': 0.5, # 0.2,
         'learning_rate': 0.001,
-        'units': 750, # 1500
+        'units': 1500, # 750
+        'model_file': model_file
     }
     
     print('Params:', params)
-    global hp
-    hp = Ontology(hp_file, with_rels=True)
+    global hpo
+    hpo = Ontology(hp_file, with_rels=True)
     terms_df = pd.read_pickle(terms_file)
     global terms
     terms = terms_df['terms'].values.flatten()
     print('Phenotypes', len(terms))
     global term_set
     term_set = set(terms)
-    train_df, valid_df, test_df = load_data(data_file, terms, split)
+    train_df, valid_df, test_df = load_data(data_file, terms, fold)
     terms_dict = {v: i for i, v in enumerate(terms)}
+    hpo_matrix = get_hpo_matrix(hpo, terms_dict)
     nb_classes = len(terms)
     params['nb_classes'] = nb_classes
     print(len(terms_dict))
@@ -112,74 +155,110 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
     valid_generator = DFGenerator(valid_df, gos_dict, terms_dict,
                                   batch_size) # len(valid_df))
     val_x, val_y = valid_generator[0]
-        
-    if load:
-        print('Loading pretrained model')
-        model = load_model(model_file)
-    else:
-        print('Creating a new model')
-        # model = MyHyperModel(params)
-        model = create_model(params)
-        
-        print("Training data size: %d" % len(train_df))
-        print("Validation data size: %d" % len(valid_df))
-        checkpointer = ModelCheckpoint(
-            filepath=model_file,
-            verbose=1, save_best_only=True)
-        earlystopper = EarlyStopping(monitor='val_loss', patience=10, verbose=1)
-        logger = CSVLogger(logger_file)
 
-        print('Starting training the model')
-        model.summary()
-        model.fit_generator(
-            train_generator,
-            steps_per_epoch=train_steps,
-            epochs=epochs,
-            validation_data=valid_generator,
-            validation_steps=valid_steps,
-            max_queue_size=batch_size,
-            workers=12,
-            callbacks=[logger, checkpointer, earlystopper])
-        logging.info('Loading best model')
-        model = load_model(model_file)
-        
-        # tuner = RandomSearch(
-        #     model,
-        #     objective='val_loss',
-        #     max_trials=50,
-        #     directory='data',
-        #     project_name='pheno')
-        # tuner.search(
-        #     x, y, epochs=100, validation_data=(val_x, val_y),
-        #     callbacks=[earlystopper])
-        # tuner.results_summary()
-        # logging.info('Loading best model')
-        # model = tuner.get_best_models(num_models=1)[0]
-        # model.summary()
-        # loss = model.evaluate(val_x, val_y)
-        # print('Valid loss %f' % loss)
-        # model.save(model_file)
-        
-    logging.info('Evaluating model')
-    loss = model.evaluate_generator(test_generator, steps=test_steps)
-    print('Test loss %f' % loss)
-    
-    logging.info('Predicting')
-    preds = model.predict_generator(test_generator, steps=test_steps, verbose=1)
+    with tf.device(device):
+        if load:
+            print('Loading pretrained model')
+            model = load_model(model_file, custom_objects={'HPOLayer': HPOLayer})
+            flat_model = load_model(model_file + '_flat.h5')
+        else:
+            print('Creating a new model')
+            # model = MyHyperModel(params)
+            flat_model = create_flat_model(params)
 
-    test_labels = np.zeros((len(test_df), nb_classes), dtype=np.int32)
-    for i, row in enumerate(test_df.itertuples()):
-        for hp_id in row.hp_annotations:
-            if hp_id in terms_dict:
-                test_labels[i, terms_dict[hp_id]] = 1
-    logging.info('Computing performance:')
-    roc_auc = compute_roc(test_labels, preds)
-    print('ROC AUC: %.2f' % (roc_auc,))
-    test_df['preds'] = list(preds)
-    print(test_df)
-    logging.info('Saving predictions')
-    test_df.to_pickle(out_file)
+            print("Training data size: %d" % len(train_df))
+            print("Validation data size: %d" % len(valid_df))
+            checkpointer = ModelCheckpoint(
+                filepath=model_file + '_flat.h5',
+                verbose=1, save_best_only=True)
+            earlystopper = EarlyStopping(monitor='val_loss', patience=6, verbose=1)
+            logger = CSVLogger(logger_file)
 
+            print('Starting training the flat model')
+            flat_model.summary()
+            flat_model.fit(
+                train_generator,
+                steps_per_epoch=train_steps,
+                epochs=epochs,
+                validation_data=valid_generator,
+                validation_steps=valid_steps,
+                max_queue_size=batch_size,
+                workers=12,
+                callbacks=[checkpointer, earlystopper])
+            model = create_model(params, hpo_matrix)
+
+            checkpointer = ModelCheckpoint(
+                filepath=model_file,
+                verbose=1, save_best_only=True)
+            model.summary()
+            print('Starting training the flat model')
+            model.fit(
+                train_generator,
+                steps_per_epoch=train_steps,
+                epochs=epochs,
+                validation_data=valid_generator,
+                validation_steps=valid_steps,
+                max_queue_size=batch_size,
+                workers=12,
+                callbacks=[logger, checkpointer, earlystopper])
+
+            logging.info('Loading best model')
+            model = load_model(model_file, custom_objects={'HPOLayer': HPOLayer})
+            flat_model = load_model(model_file + '_flat.h5')
+            # tuner = RandomSearch(
+            #     model,
+            #     objective='val_loss',
+            #     max_trials=50,
+            #     directory='data',
+            #     project_name='pheno')
+            # tuner.search(
+            #     x, y, epochs=100, validation_data=(val_x, val_y),
+            #     callbacks=[earlystopper])
+            # tuner.results_summary()
+            # logging.info('Loading best model')
+            # model = tuner.get_best_models(num_models=1)[0]
+            # model.summary()
+            # loss = model.evaluate(val_x, val_y)
+            # print('Valid loss %f' % loss)
+            # model.save(model_file)
+
+        logging.info('Evaluating model')
+        loss = flat_model.evaluate(test_generator, steps=test_steps)
+        print('Flat Test loss %f' % loss)
+        loss = model.evaluate(test_generator, steps=test_steps)
+        print('Test loss %f' % loss)
+
+        logging.info('Predicting')
+        preds = model.predict(test_generator, steps=test_steps, verbose=1)
+        flat_preds = flat_model.predict(test_generator, steps=test_steps, verbose=1)
+
+        all_terms_df = pd.read_pickle('data/all_terms.pkl')
+        all_terms = all_terms_df['terms'].values
+        all_terms_dict = {v:k for k,v in enumerate(all_terms)}
+        all_labels = np.zeros((len(test_df), len(all_terms)), dtype=np.int32)
+        for i, row in enumerate(test_df.itertuples()):
+            for hp_id in row.hp_annotations:
+                if hp_id in all_terms_dict:
+                    all_labels[i, all_terms_dict[hp_id]] = 1
+        
+        all_preds = np.zeros((len(test_df), len(all_terms)), dtype=np.float32)
+        all_flat_preds = np.zeros((len(test_df), len(all_terms)), dtype=np.float32)
+        for i in range(len(test_df)):
+            for j in range(nb_classes):
+                all_preds[i, all_terms_dict[terms[j]]] = preds[i, j]
+                all_flat_preds[i, all_terms_dict[terms[j]]] = flat_preds[i, j]
+        logging.info('Computing performance:')
+        roc_auc = compute_roc(all_labels, all_preds)
+        print('ROC AUC: %.2f' % (roc_auc,))
+        flat_roc_auc = compute_roc(all_labels, all_flat_preds)
+        print('FLAT ROC AUC: %.2f' % (flat_roc_auc,))
+        test_df['preds'] = list(preds)
+        print(test_df)
+        logging.info('Saving predictions')
+        test_df.to_pickle(out_file)
+
+        test_df['preds'] = list(flat_preds)
+        test_df.to_pickle(out_file + '_flat.pkl')
 
 def compute_roc(labels, preds):
     # Compute ROC curve and ROC area for each class
@@ -188,27 +267,42 @@ def compute_roc(labels, preds):
 
     return roc_auc
 
-def load_data(data_file, terms, split):
+def load_data(data_file, terms, fold=1):
     df = pd.read_pickle(data_file)
     n = len(df)
     # Split train/valid
     n = len(df)
     index = np.arange(n)
-    train_n = int(n * split)
-    valid_n = int(train_n * split)
     np.random.seed(seed=10)
     np.random.shuffle(index)
-    train_df = df.iloc[index[:valid_n]]
-    valid_df = df.iloc[index[valid_n:train_n]]
-    test_df = df.iloc[index[train_n:]]
+    index = list(index)
+    train_index = []
+    test_index = []
+    fn = n / 5
+    # 5 fold cross-validation
+    for i in range(1, 6):
+        start = int((i - 1) * fn)
+        end = int(i * fn)
+        if i == fold:
+            test_index += index[start:end]
+        else:
+            train_index += index[start:end]
+    assert n == len(test_index) + len(train_index)
+    train_df = df.iloc[train_index]
+    test_df = df.iloc[test_index]
 
+    valid_n = int(len(train_df) * 0.9)
+    valid_df = train_df.iloc[valid_n:]
+    train_df = train_df.iloc[:valid_n]
+    
     # All Swissprot proteins
-    test_df = pd.read_pickle('data/human_all.pkl')
+    # test_df = pd.read_pickle('data/human_all.pkl')
     
     # CAFA2 Test data
     # train_df = df.iloc[index[:train_n]]
     # valid_df = df.iloc[index[train_n:]]
     # test_df = pd.read_pickle('data/human_test.pkl')
+    print(len(df), len(train_df), len(valid_df), len(test_df))
     return train_df, valid_df, test_df
     
 
@@ -239,16 +333,50 @@ class MyHyperModel(HyperModel):
         return model
 
 
-def create_model(params):
+def get_hpo_matrix(hpo, terms_dict):
+    nb_classes = len(terms_dict)
+    res = np.zeros((nb_classes, nb_classes), dtype=np.float32)
+    for hp_id, i in terms_dict.items():
+        subs = hpo.get_term_set(hp_id)
+        res[i, i] = 1
+        for h_id in subs:
+            if h_id in terms_dict:
+                res[i, terms_dict[h_id]] = 1
+    return res
+
+
+def create_flat_model(params):
     inp = Input(shape=params['input_shape'], dtype=np.float32)
     net = inp
     for i in range(params['nb_layers']):
         net = Dense(
             units=params['units'], name=f'dense_{i}', activation='relu')(net)
         net = Dropout(rate=params['rate'])(net)
-    output = Dense(
+    net = Dense(
         params['nb_classes'], activation='sigmoid',
         name='dense_out')(net)
+    output = Flatten()(net)
+    model = Model(inputs=inp, outputs=output)
+    model.summary()
+    model.compile(
+        optimizer=Adam(lr=params['learning_rate']),
+        loss=params['loss'])
+    logging.info('Compilation finished')
+
+    return model
+
+
+def create_model(params, hpo_matrix):
+    inp = Input(shape=params['input_shape'], dtype=np.float32)
+    # Load flat model
+    flat_model = load_model(params['model_file'] + '_flat.h5')
+    net = flat_model(inp)
+    hpo_layer = HPOLayer(params['nb_classes'])
+    hpo_layer.trainable = False
+    hpo_layer.set_hpo_matrix(hpo_matrix)
+    net = hpo_layer(net)
+    net = MaxPooling1D(pool_size=params['nb_classes'])(net)
+    output = Flatten()(net)
     model = Model(inputs=inp, outputs=output)
     model.summary()
     model.compile(
@@ -288,13 +416,13 @@ class DFGenerator(Sequence):
                 if t_id in self.gos_dict:
                     data_gos[i, self.gos_dict[t_id]] = float(score)
 
-            # for t_id in row.iea_annotations:
-            #     if t_id in self.gos_dict:
-            #         data_gos[i, self.gos_dict[t_id]] = 1
+            for t_id in row.iea_annotations:
+                if t_id in self.gos_dict:
+                    data_gos[i, self.gos_dict[t_id]] = 1
 
-            # for t_id in row.go_annotations:
-            #     if t_id in self.gos_dict:
-            #         data_gos[i, self.gos_dict[t_id]] = 1
+            for t_id in row.go_annotations:
+                if t_id in self.gos_dict:
+                    data_gos[i, self.gos_dict[t_id]] = 1
                 
             for t_id in row.hp_annotations:
                 if t_id in self.terms_dict:

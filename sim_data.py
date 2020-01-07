@@ -26,22 +26,24 @@ logging.basicConfig(level=logging.INFO)
     '--predictions-file', '-pf', default='data/predictions_max.pkl',
     help='Data file')
 @ck.option(
-    '--threshold', '-th', default=0.21,
-    help='Predictions threshold')
-@ck.option(
     '--gene-annots-file', '-gaf', default='data/gene_annotations.tab',
     help='Gene Phenotype annotations')
 @ck.option(
     '--dis-annots-file', '-daf', default='data/dis_annotations.tab',
     help='Disease Phenotype annotations')
+@ck.option(
+    '--fold', '-f', default=1,
+    help='Fold index')
 def main(hp_file, terms_file, dis_phenotypes, omim_file, predictions_file,
-         threshold, gene_annots_file, dis_annots_file):
+         gene_annots_file, dis_annots_file, fold):
     hp = Ontology(hp_file, with_rels=True)
     print('HP loaded')
     terms_df = pd.read_pickle(terms_file)
     terms = terms_df['terms'].values.flatten()
     terms_dict = {v: i for i, v in enumerate(terms)}
-
+    predictions_file = f'fold{fold}_' + predictions_file
+    gene_annots_file = f'fold{fold}_' + gene_annots_file
+    dis_annots_file = f'fold{fold}_' + dis_annots_file
     diseases = set()
     genes = set()
     with open(omim_file, 'r') as f:
@@ -54,7 +56,6 @@ def main(hp_file, terms_file, dis_phenotypes, omim_file, predictions_file,
             genes |= set(gene_symbols)
             diseases.add('OMIM:' + omim_id)
     print(len(diseases), len(genes))
-    return
     dis_annots = {}
     with open(dis_phenotypes) as f:
         for line in f:
@@ -82,9 +83,6 @@ def main(hp_file, terms_file, dis_phenotypes, omim_file, predictions_file,
             w.write(row['genes'])
             for hp_id in row['hp_preds']:
                 w.write('\t' + hp_id)
-            # for hp_id, score in zip(terms, row['preds']):
-            #     if score >= threshold:
-            #         w.write('\t' + hp_id)
             w.write('\n')
     
 
