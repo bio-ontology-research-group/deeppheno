@@ -27,14 +27,12 @@ import groovyx.gpars.GParsPool
 System.setProperty("jdk.xml.entityExpansionLimit", "0");
 System.setProperty("jdk.xml.totalEntitySizeLimit", "0");
 
-println(args)
-
 def factory = URIFactoryMemory.getSingleton()
 def annotationsPath = args[0] // "data/gene_annotations.tab";
 def omimPath = "data/dis_annotations.tab";
 def resSimPath = args[1] // "data/sim_gene_disease.txt";
 
-System.exit(0)
+println(annotationsPath + "\t" + resSimPath)
 
 class Gene {
 
