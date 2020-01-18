@@ -22,12 +22,18 @@ logging.basicConfig(level=logging.INFO)
     '--terms-file', '-tf', default='data/terms.pkl',
     help='Terms for prediction')
 @ck.option(
-    '--preds-file', '-pf', default='data/human_predictions.pkl',
+    '--preds-file', '-pf', default='data/all_predictions.pkl',
     help='Data file')
 @ck.option(
-    '--pheno', '-p', default='HP:0000842',
+    '--pheno', '-p', default='HP:0005978',
     help='Data file')
-def main(go_file, hp_file, terms_file, preds_file, pheno):
+@ck.option(
+    '--ukb-file', '-uf', default='data/E11_gwas_genes.pkl',
+    help='Data file')
+@ck.option(
+    '--gwas-file', '-gf', default='data/gwas-association-downloaded_2019-10-09-EFO_0001360-withChildTraits.tsv',
+    help='Data file')
+def main(go_file, hp_file, terms_file, preds_file, pheno, ukb_file, gwas_file):
     go = Ontology(go_file, with_rels=True)
     print('GO loaded')
     hp = Ontology(hp_file, with_rels=True)
@@ -51,7 +57,7 @@ def main(go_file, hp_file, terms_file, preds_file, pheno):
     #     for row in df.itertuples():
     #         if pheno in row.hp_annotations:
     #             exp_genes.add(row.genes)
-    #         if row.preds[i] >= 0.2:
+    #         if row.preds[i] >= 0.28:
     #             pred_genes.add(row.genes)
 
     #     inter = exp_genes.intersection(pred_genes)
@@ -71,7 +77,7 @@ def main(go_file, hp_file, terms_file, preds_file, pheno):
     for row in df.itertuples():
         if pheno in row.hp_annotations:
             exp_genes.add(row.genes)
-        if row.preds[i] >= 0.2:
+        if row.preds[i] >= 0.28:
             pred_genes.add(row.genes)
 
     fgenes = pred_genes - exp_genes
@@ -109,6 +115,18 @@ def main(go_file, hp_file, terms_file, preds_file, pheno):
     # for item in res:
     #     print(item)
 
+    # UKBIOBank GWAS file
+    df = pd.read_pickle(ukb_file)
+    ukb_genes = set(df['genes'].values)
+
+    gwas_genes = set()
+    df = pd.read_csv(gwas_file, sep='\t', encoding='utf-8')
+    for it in df['MAPPED_GENE']:
+        mapped_genes = str(it).replace(' - ', ', ')
+        gwas_genes |= set(mapped_genes.split(', '))
+
+    print('UKBGenes', genes.intersection(ukb_genes))
+    print('GWASGenes', genes.intersection(gwas_genes))
 
 def load_interactions():
     idmap = {}

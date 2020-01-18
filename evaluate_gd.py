@@ -33,7 +33,14 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 @ck.option(
     '--gene-dis-assoc-file', '-gdaf', default='data/morbidmap.txt',
     help='Gene Disease association file')
-def main(gene_annots_file, dis_annots_file, sim_file, gene_dis_assoc_file):
+@ck.option(
+    '--fold', '-f', default=1,
+    help='Fold index')
+def main(gene_annots_file, dis_annots_file, sim_file, gene_dis_assoc_file, fold):
+    # Cross validation evaluation
+    sim_file = f'fold{fold}_' + sim_file
+    gene_annots_file = f'fold{fold}_' + gene_annots_file
+
     genes = []
     genes_dict = {}
     with open(gene_annots_file) as f:

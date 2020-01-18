@@ -14,6 +14,9 @@ logging.basicConfig(level=logging.INFO)
     '--hp-file', '-hf', default='data/hp.obo',
     help='Human Phenotype Ontology file in OBO Format')
 @ck.option(
+    '--train-data-file', '-trdf', default='data/human.pkl',
+    help='Data file with training features')
+@ck.option(
     '--terms-file', '-tf', default='data/terms.pkl',
     help='Data file with sequences and complete set of annotations')
 @ck.option(
@@ -34,16 +37,20 @@ logging.basicConfig(level=logging.INFO)
 @ck.option(
     '--fold', '-f', default=1,
     help='Fold index')
-def main(hp_file, terms_file, dis_phenotypes, omim_file, predictions_file,
+def main(hp_file, train_data_file, terms_file, dis_phenotypes, omim_file, predictions_file,
          gene_annots_file, dis_annots_file, fold):
+    
     hp = Ontology(hp_file, with_rels=True)
     print('HP loaded')
     terms_df = pd.read_pickle(terms_file)
     terms = terms_df['terms'].values.flatten()
     terms_dict = {v: i for i, v in enumerate(terms)}
+
     predictions_file = f'fold{fold}_' + predictions_file
     gene_annots_file = f'fold{fold}_' + gene_annots_file
     dis_annots_file = f'fold{fold}_' + dis_annots_file
+    real_annots_file = f'fold{fold}_data/gene_annotations_real.tab'
+    
     diseases = set()
     genes = set()
     with open(omim_file, 'r') as f:
@@ -84,8 +91,16 @@ def main(hp_file, terms_file, dis_phenotypes, omim_file, predictions_file,
             for hp_id in row['hp_preds']:
                 w.write('\t' + hp_id)
             w.write('\n')
-    
 
+    with open(real_annots_file, 'w') as w:
+        for i, row in df.iterrows():
+            w.write(row['genes'])
+            for hp_id in row['hp_annotations']:
+                w.write('\t' + hp_id)
+            w.write('\n')
+
+
+    
 
 if __name__ == '__main__':
     main()

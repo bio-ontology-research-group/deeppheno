@@ -11,28 +11,28 @@ logging.basicConfig(level=logging.INFO)
 
 @ck.command()
 @ck.option(
-    '--go-file', '-gf', default='data/go.obo',
+    '--go-file', '-gf', default='data-cafa/go.obo',
     help='Gene Ontology file in OBO Format')
 @ck.option(
-    '--hp-file', '-hf', default='data/hp.obo',
+    '--hp-file', '-hf', default='data-cafa/hp.obo',
     help='Human Phenotype Ontology file in OBO Format')
 @ck.option(
-    '--hp-annots-file', '-haf', default='data/HPO-t0/hpoa.hp',
+    '--hp-annots-file', '-haf', default='data-cafa/HPO-t0/hpoa.hp',
     help='Human Phenotype Ontology annotations')
 @ck.option(
-    '--deepgo-annots-file', '-daf', default='data/human.res',
+    '--deepgo-annots-file', '-daf', default='data-cafa/human.res',
     help='Predicted go annotations with DeepGOPlus')
 @ck.option(
-    '--data-file', '-df', default='data/swissprot.pkl',
+    '--data-file', '-df', default='data-cafa/swissprot.pkl',
     help='Uniprot KB, generated with uni2pandas.py')
 @ck.option(
-    '--out-terms-file', '-otf', default='data/terms.pkl',
+    '--out-terms-file', '-otf', default='data-cafa/terms.pkl',
     help='Terms for prediction')
 @ck.option(
-    '--out-data-file', '-odf', default='data/human.pkl',
+    '--out-data-file', '-odf', default='data-cafa/human.pkl',
     help='Data file')
 @ck.option(
-    '--min-count', '-mc', default=50,
+    '--min-count', '-mc', default=10,
     help='Min count of HP classes for prediction')
 def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
          data_file, out_data_file, out_terms_file, min_count):
@@ -81,7 +81,6 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
             if hp.has_term(hp_id):
                 hp_annots[p_id] |= hp.get_anchestors(hp_id)
 
-    print(unrev)
     print('HP Annotations', len(hp_annots))
     dg_annots = {}
     gos = set()
@@ -102,7 +101,7 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
         deepgo_annots[g_id] = [go_id + '|' + str(score) for go_id, score in annots.items()]
     print('Number of GOs', len(gos))
     df = pd.DataFrame({'gos': list(gos)})
-    df.to_pickle('data/gos.pkl')
+    df.to_pickle('data-cafa/gos.pkl')
 
     logging.info('Processing annotations')
     
@@ -139,13 +138,13 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
 
     test_annots = {}
     tar2prot = {}
-    with open('data/tar2prot.txt') as f:
+    with open('data-cafa/tar2prot.txt') as f:
         for line in f:
             it = line[1:].strip().split()
             tar2prot[it[0]] = it[1]
 
     unknown_prots = set()
-    with open('data/benchmark/groundtruth/leafonly_HPO.txt') as f:
+    with open('data-cafa/benchmark/groundtruth/leafonly_HPO.txt') as f:
         for line in f:
             it = line.strip().split()
             p_id = tar2prot[it[0]]
@@ -157,7 +156,7 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
                 test_annots[p_id] = set()
             if hp.has_term(hp_id):
                 test_annots[p_id] |= hp.get_anchestors(hp_id)
-    with open('data/noknowledge_targets.txt', 'w') as f:
+    with open('data-cafa/noknowledge_targets.txt', 'w') as f:
         for t_id in unknown_prots:
             f.write(t_id + '\n')
 
@@ -183,14 +182,16 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
          'deepgo_annotations': deepgo_annotations,
          'sequences': sequences})
     
-    df.to_pickle('data/human_test.pkl')
+    df.to_pickle('data-cafa/human_test.pkl')
     print(f'Number of test proteins {len(df)}')
 
     # Filter terms with annotations more than min_count
     terms_set = set()
+    all_terms = []
     for key, val in cnt.items():
         if key == 'HP:0000001':
             continue
+        all_terms.append(key)
         if val >= min_count:
             terms_set.add(key)
     terms = []
@@ -203,7 +204,9 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
     df = pd.DataFrame({'terms': terms})
     df.to_pickle(out_terms_file)
 
-                
+    df = pd.DataFrame({'terms': all_terms})
+    df.to_pickle('data-cafa/all_terms.pkl')
+
 
 
 if __name__ == '__main__':

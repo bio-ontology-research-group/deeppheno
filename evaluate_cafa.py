@@ -21,22 +21,32 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 
 @ck.command()
 @ck.option(
-    '--benchmark-file', '-bf', default='data/benchmark/groundtruth/leafonly_HPO.txt',
+    '--benchmark-file', '-bf', default='data-cafa/benchmark/groundtruth/leafonly_HPO.txt',
     help='CAFA benchmark annotations')
 @ck.option(
-    '--predictions-file', '-pf', default='data/predictions.txt',
+    '--predictions-file', '-pf', default='data-cafa/predictions.txt',
     help='Predictions file')
 @ck.option(
-    '--train-data-file', '-trdf', default='data/human.pkl',
+    '--train-data-file', '-trdf', default='data-cafa/human.pkl',
     help='Data file with training features')
 @ck.option(
-    '--hpo-file', '-hf', default='data/hp.obo',
+    '--hpo-file', '-hf', default='data-cafa/hp.obo',
     help='Data file with sequences and complete set of annotations')
-def main(benchmark_file, predictions_file, train_data_file, hpo_file):
+@ck.option(
+    '--terms-file', '-tf', default='data-cafa/terms.pkl',
+    help='Data file with sequences and complete set of annotations')
+@ck.option(
+    '--root-class', '-rc', default='HP:0000001',
+    help='Root class for evaluation')
+def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file, root_class):
 
     hp = Ontology(hpo_file, with_rels=True)
+    terms_df = pd.read_pickle(terms_file)
+    terms = terms_df['terms'].values.flatten()
+    terms_dict = {v: i for i, v in enumerate(terms)}
+
     noknowledge_prots = set()
-    with open('data/noknowledge_targets.txt') as f:
+    with open('data-cafa/noknowledge_targets.txt') as f:
         for line in f:
             noknowledge_prots.add(line.strip())
     
@@ -64,19 +74,43 @@ def main(benchmark_file, predictions_file, train_data_file, hpo_file):
             if t_id not in pred_annots:
                 pred_annots[t_id] = {}
             pred_annots[t_id][hp_id] = score
-    
-    train_df = pd.read_pickle(train_data_file)
+
+    train_df = pd.read_pickle(train_data_file)        
     annotations = train_df['hp_annotations'].values
     annotations = list(map(lambda x: set(x), annotations))
     hp.calculate_ic(annotations)
+
+    hp_set = set(terms)
+    all_classes = hp.get_term_set(root_class)
+    hp_set = hp_set.intersection(all_classes)
+    hp_set.discard(root_class)
+    print(len(hp_set))
     
     labels = []
     for t_id, hps in bench_annots.items():
         labels.append(hps)
-    # labels = list(map(lambda x: set(filter(lambda y: y in hp_set_anch, x)), labels))
+    labels = list(map(lambda x: set(filter(lambda y: y in hp_set, x)), labels))
+
+    # Compute AUC
+    auc_terms = list(hp_set)
+    auc_terms_dict = {v: i for i, v in enumerate(auc_terms)}
+    auc_preds = np.zeros((len(bench_annots), len(hp_set)), dtype=np.float32)
+    auc_labels = np.zeros((len(bench_annots), len(hp_set)), dtype=np.int32)
+    i = 0
+    for t_id, hps in bench_annots.items():
+        for j, hp_id in enumerate(auc_terms):
+            if t_id in pred_annots and hp_id in pred_annots[t_id]:
+                auc_preds[i, j] = pred_annots[t_id][hp_id]
+            if hp_id in hps:
+                auc_labels[i, j] = 1
+        i += 1
+    roc_auc = compute_roc(auc_labels, auc_preds)
+    print(roc_auc)
     
     fmax = 0.0
     tmax = 0.0
+    pmax = 0.0
+    rmax = 0.0
     precisions = []
     recalls = []
     smin = 1000000.0
@@ -99,27 +133,25 @@ def main(benchmark_file, predictions_file, train_data_file, hpo_file):
                 new_annots |= hp.get_anchestors(hp_id)
             preds.append(new_annots)
         
-    
-        # Filter classes
-        
         fscore, prec, rec, s = evaluate_annotations(hp, labels, preds)
         precisions.append(prec)
         recalls.append(rec)
         print(f'Fscore: {fscore}, S: {s}, threshold: {threshold}')
         if fmax < fscore:
             fmax = fscore
+            pmax = prec
+            rmax = rec
             tmax = threshold
             max_preds = preds
         if smin > s:
             smin = s
-    print(f'Fmax: {fmax:0.3f}, Smin: {smin:0.3f}, threshold: {tmax}')
     precisions = np.array(precisions)
     recalls = np.array(recalls)
     sorted_index = np.argsort(recalls)
     recalls = recalls[sorted_index]
     precisions = precisions[sorted_index]
     aupr = np.trapz(precisions, recalls)
-    print(f'AUPR: {aupr:0.3f}')
+    print(f'AUROC: {roc_auc:0.3f}, AUPR: {aupr:0.3f}, Fmax: {fmax:0.3f}, Prec: {pmax:0.3f}, Rec: {rmax:0.3f}, Smin: {smin:0.3f}, threshold: {tmax}')
     # plt.figure()
     # lw = 2
     # plt.plot(recalls, precisions, color='darkorange',

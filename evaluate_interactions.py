@@ -51,7 +51,7 @@ def load_interactions():
     '--hp-file', '-hf', default='data/hp.obo',
     help='Human Phenotype Ontology file in OBO Format')
 @ck.option(
-    '--preds-file', '-pf', default='data/human_predictions.pkl',
+    '--preds-file', '-pf', default='data/all_predictions.pkl',
     help='Data file with similarity values')
 @ck.option(
     '--terms-file', '-tf', default='data/spec_terms.pkl',
@@ -86,7 +86,7 @@ def main(go_file, hp_file, preds_file, terms_file):
             for row in df.itertuples():
                 if pheno in row.hp_annotations:
                     exp_genes.add(row.genes)
-                if row.preds[i] >= 0.2:
+                if row.preds[i] >= 0.28:
                     pred_genes.add(row.genes)
             fgenes = pred_genes - exp_genes
             igenes = set()

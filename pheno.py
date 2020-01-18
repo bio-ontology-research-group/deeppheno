@@ -31,14 +31,6 @@ logging.basicConfig(level=logging.DEBUG)
 
 print("GPU Available: ", tf.test.is_gpu_available())
 
-from tensorflow.compat.v1 import ConfigProto
-from tensorflow.compat.v1 import InteractiveSession
-
-config = ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.2
-config.gpu_options.allow_growth = True
-session = InteractiveSession(config=config)
-tf.compat.v1.keras.backend.set_session(session)
 
 class HPOLayer(Layer):
 
@@ -117,13 +109,13 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
     gos_dict = {v: i for i, v in enumerate(gos)}
 
     # cross validation settings
-    model_file = f'fold{fold}_' + model_file
-    out_file = f'fold{fold}_' + out_file
+    # model_file = f'fold{fold}_' + model_file
+    # out_file = f'fold{fold}_' + out_file
     params = {
         'input_shape': (len(gos),),
         'nb_layers': 1,
         'loss': 'binary_crossentropy',
-        'rate': 0.5, # 0.2,
+        'rate': 0.3,
         'learning_rate': 0.001,
         'units': 1500, # 750
         'model_file': model_file
@@ -149,13 +141,19 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
                                  batch_size)
     valid_steps = int(math.ceil(len(valid_df) / batch_size))
     train_steps = int(math.ceil(len(train_df) / batch_size))
-    train_generator = DFGenerator(train_df, gos_dict, terms_dict,
-                                  batch_size) # len(train_df))
-    x, y = train_generator[0]
-    valid_generator = DFGenerator(valid_df, gos_dict, terms_dict,
-                                  batch_size) # len(valid_df))
-    val_x, val_y = valid_generator[0]
 
+    xy_generator = DFGenerator(train_df, gos_dict, terms_dict,
+                                  len(train_df))
+    x, y = xy_generator[0]
+    val_generator = DFGenerator(valid_df, gos_dict, terms_dict,
+                                  len(valid_df))
+    val_x, val_y = val_generator[0]
+
+    train_generator = DFGenerator(train_df, gos_dict, terms_dict,
+                                  batch_size)
+    valid_generator = DFGenerator(valid_df, gos_dict, terms_dict,
+                                  batch_size)
+    
     with tf.device(device):
         if load:
             print('Loading pretrained model')
@@ -163,8 +161,8 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
             flat_model = load_model(model_file + '_flat.h5')
         else:
             print('Creating a new model')
-            # model = MyHyperModel(params)
-            flat_model = create_flat_model(params)
+            flat_model = MyHyperModel(params)
+            # flat_model = create_flat_model(params)
 
             print("Training data size: %d" % len(train_df))
             print("Validation data size: %d" % len(valid_df))
@@ -174,17 +172,35 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
             earlystopper = EarlyStopping(monitor='val_loss', patience=6, verbose=1)
             logger = CSVLogger(logger_file)
 
-            print('Starting training the flat model')
+            # print('Starting training the flat model')
+            # flat_model.summary()
+            # flat_model.fit(
+            #     train_generator,
+            #     steps_per_epoch=train_steps,
+            #     epochs=epochs,
+            #     validation_data=valid_generator,
+            #     validation_steps=valid_steps,
+            #     max_queue_size=batch_size,
+            #     workers=12,
+            #     callbacks=[checkpointer, earlystopper])
+
+            tuner = RandomSearch(
+                flat_model,
+                objective='val_loss',
+                max_trials=50,
+                directory='data-cafa',
+                project_name='pheno')
+            tuner.search(
+                x, y, epochs=100, validation_data=(val_x, val_y),
+                callbacks=[earlystopper])
+            tuner.results_summary()
+            logging.info('Loading best model')
+            flat_model = tuner.get_best_models(num_models=1)[0]
             flat_model.summary()
-            flat_model.fit(
-                train_generator,
-                steps_per_epoch=train_steps,
-                epochs=epochs,
-                validation_data=valid_generator,
-                validation_steps=valid_steps,
-                max_queue_size=batch_size,
-                workers=12,
-                callbacks=[checkpointer, earlystopper])
+            loss = flat_model.evaluate(val_x, val_y)
+            print('Valid loss %f' % loss)
+            flat_model.save(model_file + '_flat.h5')
+
             model = create_model(params, hpo_matrix)
 
             checkpointer = ModelCheckpoint(
@@ -205,23 +221,7 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
             logging.info('Loading best model')
             model = load_model(model_file, custom_objects={'HPOLayer': HPOLayer})
             flat_model = load_model(model_file + '_flat.h5')
-            # tuner = RandomSearch(
-            #     model,
-            #     objective='val_loss',
-            #     max_trials=50,
-            #     directory='data',
-            #     project_name='pheno')
-            # tuner.search(
-            #     x, y, epochs=100, validation_data=(val_x, val_y),
-            #     callbacks=[earlystopper])
-            # tuner.results_summary()
-            # logging.info('Loading best model')
-            # model = tuner.get_best_models(num_models=1)[0]
-            # model.summary()
-            # loss = model.evaluate(val_x, val_y)
-            # print('Valid loss %f' % loss)
-            # model.save(model_file)
-
+            
         logging.info('Evaluating model')
         loss = flat_model.evaluate(test_generator, steps=test_steps)
         print('Flat Test loss %f' % loss)
@@ -269,7 +269,6 @@ def compute_roc(labels, preds):
 
 def load_data(data_file, terms, fold=1):
     df = pd.read_pickle(data_file)
-    n = len(df)
     # Split train/valid
     n = len(df)
     index = np.arange(n)
@@ -278,30 +277,34 @@ def load_data(data_file, terms, fold=1):
     index = list(index)
     train_index = []
     test_index = []
-    fn = n / 5
-    # 5 fold cross-validation
-    for i in range(1, 6):
-        start = int((i - 1) * fn)
-        end = int(i * fn)
-        if i == fold:
-            test_index += index[start:end]
-        else:
-            train_index += index[start:end]
-    assert n == len(test_index) + len(train_index)
-    train_df = df.iloc[train_index]
-    test_df = df.iloc[test_index]
+    # fn = n / 5
+    # # 5 fold cross-validation
+    # for i in range(1, 6):
+    #     start = int((i - 1) * fn)
+    #     end = int(i * fn)
+    #     if i == fold:
+    #         test_index += index[start:end]
+    #     else:
+    #         train_index += index[start:end]
+    # assert n == len(test_index) + len(train_index)
+    # train_df = df.iloc[train_index]
+    # test_df = df.iloc[test_index]
 
-    valid_n = int(len(train_df) * 0.9)
-    valid_df = train_df.iloc[valid_n:]
-    train_df = train_df.iloc[:valid_n]
-    
+    # valid_n = int(len(train_df) * 0.9)
+    # valid_df = train_df.iloc[valid_n:]
+    # train_df = train_df.iloc[:valid_n]
+     
     # All Swissprot proteins
-    # test_df = pd.read_pickle('data/human_all.pkl')
+    train_n = int(n * 0.9)
+    train_df = df.iloc[index[:train_n]]
+    valid_df = df.iloc[index[train_n:]]
+    test_df = pd.read_pickle('data/human_all.pkl')
     
     # CAFA2 Test data
+    # train_n = int(n * 0.9)
     # train_df = df.iloc[index[:train_n]]
     # valid_df = df.iloc[index[train_n:]]
-    # test_df = pd.read_pickle('data/human_test.pkl')
+    # test_df = pd.read_pickle('data-cafa/human_test.pkl')
     print(len(df), len(train_df), len(valid_df), len(test_df))
     return train_df, valid_df, test_df
     
@@ -319,7 +322,7 @@ class MyHyperModel(HyperModel):
                 units=hp.Int(
                     'units', min_value=250, max_value=2000, step=250),
                 name=f'dense_{i}', activation='relu')(net)
-            net = Dropout(hp.Choice('rate', values=[0.2, 0.5]))(net)
+            net = Dropout(hp.Choice('rate', values=[0.3, 0.5]))(net)
         output = Dense(
             self.params['nb_classes'], activation='sigmoid',
             name='dense_out')(net)

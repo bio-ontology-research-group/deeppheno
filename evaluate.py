@@ -32,8 +32,17 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 @ck.option(
     '--out-file', '-of', default='data/predictions_max.pkl',
     help='Results file with best Fmax predictions')
-def main(train_data_file, test_data_file, terms_file, out_file):
-
+@ck.option(
+    '--root-class', '-rc', default='HP:0000001',
+    help='Root class for evaluation')
+@ck.option(
+    '--fold', '-f', default=1,
+    help='Root class for evaluation')
+def main(train_data_file, test_data_file, terms_file, out_file, root_class, fold):
+    # Cross validation evaluation
+    # out_file = f'fold{fold}_' + out_file
+    # test_data_file = f'fold{fold}_' + test_data_file
+    
     hp = Ontology('data/hp.obo', with_rels=True)
     terms_df = pd.read_pickle(terms_file)
     terms = terms_df['terms'].values.flatten()
@@ -48,16 +57,30 @@ def main(train_data_file, test_data_file, terms_file, out_file):
     hp.calculate_ic(annotations)
 
     hp_set = set(terms)
-    
-    hp_set_anch = set()
-    for hp_id in hp_set:
-        hp_set_anch |= hp.get_anchestors(hp_id)
+    all_classes = hp.get_term_set(root_class)
+    hp_set = hp_set.intersection(all_classes)
+    hp_set.discard(root_class)
+    print(len(hp_set))
     
     labels = test_annotations
-    # labels = list(map(lambda x: set(filter(lambda y: y in hp_set_anch, x)), labels))
-    
+    labels = list(map(lambda x: set(filter(lambda y: y in hp_set, x)), labels))
+
+    # Compute AUC
+    auc_terms = list(hp_set)
+    auc_terms_dict = {v: i for i, v in enumerate(auc_terms)}
+    auc_preds = np.zeros((len(test_df), len(hp_set)), dtype=np.float32)
+    auc_labels = np.zeros((len(test_df), len(hp_set)), dtype=np.int32)
+    for i, row in enumerate(test_df.itertuples()):
+        for j, hp_id in enumerate(auc_terms):
+            auc_preds[i, j] = row.preds[terms_dict[hp_id]]
+            if hp_id in labels[i]:
+                auc_labels[i, j] = 1
+    roc_auc = compute_roc(auc_labels, auc_preds)
+    print(roc_auc)
     fmax = 0.0
     tmax = 0.0
+    pmax = 0.0
+    rmax = 0.0
     precisions = []
     recalls = []
     smin = 1000000.0
@@ -66,7 +89,7 @@ def main(train_data_file, test_data_file, terms_file, out_file):
         threshold = t / 100.0
         preds = []
         for i, row in enumerate(test_df.itertuples()):
-            gene_id = row.genes #row.proteins
+            gene_id = row.genes
             annots_dict = {} 
             
             for j, score in enumerate(row.preds):
@@ -84,7 +107,7 @@ def main(train_data_file, test_data_file, terms_file, out_file):
             new_annots = set()
             for hp_id in annots:
                 new_annots |= hp.get_anchestors(hp_id)
-            new_annots.discard('HP:0000001')
+            new_annots = new_annots.intersection(hp_set)
             preds.append(new_annots)
         
     
@@ -98,9 +121,10 @@ def main(train_data_file, test_data_file, terms_file, out_file):
             fmax = fscore
             tmax = threshold
             max_preds = preds
+            pmax = prec
+            rmax = rec
         if smin > s:
             smin = s
-    print(f'Fmax: {fmax:0.3f}, Smin: {smin:0.3f}, threshold: {tmax}')
     test_df['hp_preds'] = max_preds
     test_df.to_pickle(out_file)
     precisions = np.array(precisions)
@@ -109,7 +133,7 @@ def main(train_data_file, test_data_file, terms_file, out_file):
     recalls = recalls[sorted_index]
     precisions = precisions[sorted_index]
     aupr = np.trapz(precisions, recalls)
-    print(f'AUPR: {aupr:0.3f}')
+    print(f'AUROC: {roc_auc:0.3f}, AUPR: {aupr:0.3f}, Fmax: {fmax:0.3f}, Prec: {pmax:0.3f}, Rec: {rmax:0.3f}, Smin: {smin:0.3f}, threshold: {tmax}')
     plt.figure()
     lw = 2
     plt.plot(recalls, precisions, color='darkorange',
