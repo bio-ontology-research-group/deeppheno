@@ -21,63 +21,39 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 
 @ck.command()
 @ck.option(
-    '--benchmark-file', '-bf', default='data-cafa/benchmark/groundtruth/leafonly_HPO.txt',
-    help='CAFA benchmark annotations')
-@ck.option(
-    '--predictions-file', '-pf', default='data-cafa/predictions.txt',
-    help='Predictions file')
-@ck.option(
     '--train-data-file', '-trdf', default='data-cafa/human.pkl',
     help='Data file with training features')
 @ck.option(
-    '--hpo-file', '-hf', default='data-cafa/hp.obo',
-    help='Data file with sequences and complete set of annotations')
+    '--test-data-file', '-tsdf', default='data-cafa/predictions.pkl',
+    help='Test data file')
 @ck.option(
     '--terms-file', '-tf', default='data-cafa/terms.pkl',
     help='Data file with sequences and complete set of annotations')
 @ck.option(
-    '--root-class', '-rc', default='HP:0000001',
+    '--out-file', '-of', default='data-cafa/predictions_max.pkl',
+    help='Results file with best Fmax predictions')
+@ck.option(
+    '--root-class', '-rc', default='HP:0000118',
     help='Root class for evaluation')
-def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file, root_class):
-
-    hp = Ontology(hpo_file, with_rels=True)
+@ck.option(
+    '--fold', '-f', default=1,
+    help='Root class for evaluation')
+def main(train_data_file, test_data_file, terms_file, out_file, root_class, fold):
+    # Cross validation evaluation
+    out_file = f'fold{fold}_' + out_file
+    test_data_file = f'fold{fold}_' + test_data_file
+    
+    hp = Ontology('data-cafa/hp.obo', with_rels=True)
     terms_df = pd.read_pickle(terms_file)
     terms = terms_df['terms'].values.flatten()
     terms_dict = {v: i for i, v in enumerate(terms)}
 
-    noknowledge_prots = set()
-    with open('data-cafa/noknowledge_targets.txt') as f:
-        for line in f:
-            noknowledge_prots.add(line.strip())
-    
-    bench_annots = {}
-    with open(benchmark_file) as f:
-        for line in f:
-            it = line.strip().split('\t')
-            t_id = it[0]
-            if t_id not in noknowledge_prots:
-                continue
-            hp_id = it[1]
-            if t_id not in bench_annots:
-                bench_annots[t_id] = set()
-            bench_annots[t_id] |= hp.get_anchestors(hp_id)
-
-    pred_annots = {}
-    with open(predictions_file) as f:
-        for line in f:
-            it = line.strip().split('\t')
-            t_id = it[0]
-            hp_id = it[1]
-            score = float(it[2])
-            if t_id not in bench_annots:
-                continue
-            if t_id not in pred_annots:
-                pred_annots[t_id] = {}
-            pred_annots[t_id][hp_id] = score
-
-    train_df = pd.read_pickle(train_data_file)        
+    train_df = pd.read_pickle(train_data_file)
+    test_df = pd.read_pickle(test_data_file)
     annotations = train_df['hp_annotations'].values
     annotations = list(map(lambda x: set(x), annotations))
+    test_annotations = test_df['hp_annotations'].values
+    test_annotations = list(map(lambda x: set(x), test_annotations))
     hp.calculate_ic(annotations)
 
     hp_set = set(terms)
@@ -86,24 +62,19 @@ def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file
     hp_set.discard(root_class)
     print(len(hp_set))
     
-    labels = []
-    for t_id, hps in bench_annots.items():
-        labels.append(hps)
+    labels = test_annotations
     labels = list(map(lambda x: set(filter(lambda y: y in hp_set, x)), labels))
 
     # Compute AUC
     auc_terms = list(hp_set)
     auc_terms_dict = {v: i for i, v in enumerate(auc_terms)}
-    auc_preds = np.zeros((len(bench_annots), len(hp_set)), dtype=np.float32)
-    auc_labels = np.zeros((len(bench_annots), len(hp_set)), dtype=np.int32)
-    i = 0
-    for t_id, hps in bench_annots.items():
+    auc_preds = np.zeros((len(test_df), len(hp_set)), dtype=np.float32)
+    auc_labels = np.zeros((len(test_df), len(hp_set)), dtype=np.int32)
+    for i, row in enumerate(test_df.itertuples()):
         for j, hp_id in enumerate(auc_terms):
-            if t_id in pred_annots and hp_id in pred_annots[t_id]:
-                auc_preds[i, j] = pred_annots[t_id][hp_id]
-            if hp_id in hps:
+            auc_preds[i, j] = row.preds[terms_dict[hp_id]]
+            if hp_id in labels[i]:
                 auc_labels[i, j] = 1
-        i += 1
     # Compute macro AUROC
     roc_auc = 0.0
     total = 0
@@ -119,7 +90,7 @@ def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file
     roc_auc /= total
     print(roc_auc)
     return
-    
+
     fmax = 0.0
     tmax = 0.0
     pmax = 0.0
@@ -131,12 +102,18 @@ def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file
     for t in range(0, 101):
         threshold = t / 100.0
         preds = []
-        for t_id, hps in bench_annots.items():
-            annots_dict = {} #pheno2go_preds[gene_id].copy()
+        for i, row in enumerate(test_df.itertuples()):
+            gene_id = row.proteins
+            annots_dict = {} 
             
-            if t_id in pred_annots:
-                annots_dict = pred_annots[t_id].copy()
-            
+            for j, score in enumerate(row.preds):
+                hp_id = terms[j]
+                # score = score * (1 - alpha)
+                if hp_id in annots_dict:
+                    annots_dict[hp_id] += score
+                else:
+                    annots_dict[hp_id] = score
+                
             annots = set()
             for hp_id, score in annots_dict.items():
                 if score >= threshold:
@@ -144,7 +121,11 @@ def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file
             new_annots = set()
             for hp_id in annots:
                 new_annots |= hp.get_anchestors(hp_id)
+            new_annots = new_annots.intersection(hp_set)
             preds.append(new_annots)
+        
+    
+        # Filter classes
         
         fscore, prec, rec, s = evaluate_annotations(hp, labels, preds)
         precisions.append(prec)
@@ -152,12 +133,14 @@ def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file
         print(f'Fscore: {fscore}, S: {s}, threshold: {threshold}')
         if fmax < fscore:
             fmax = fscore
-            pmax = prec
-            rmax = rec
             tmax = threshold
             max_preds = preds
+            pmax = prec
+            rmax = rec
         if smin > s:
             smin = s
+    test_df['hp_preds'] = max_preds
+    test_df.to_pickle(out_file)
     precisions = np.array(precisions)
     recalls = np.array(recalls)
     sorted_index = np.argsort(recalls)
@@ -165,17 +148,17 @@ def main(benchmark_file, train_data_file, predictions_file, hpo_file, terms_file
     precisions = precisions[sorted_index]
     aupr = np.trapz(precisions, recalls)
     print(f'AUROC: {roc_auc:0.3f}, AUPR: {aupr:0.3f}, Fmax: {fmax:0.3f}, Prec: {pmax:0.3f}, Rec: {rmax:0.3f}, Smin: {smin:0.3f}, threshold: {tmax}')
-    # plt.figure()
-    # lw = 2
-    # plt.plot(recalls, precisions, color='darkorange',
-    #          lw=lw, label=f'AUPR curve (area = {aupr:0.2f})')
-    # plt.xlim([0.0, 1.0])
-    # plt.ylim([0.0, 1.05])
-    # plt.xlabel('Recall')
-    # plt.ylabel('Precision')
-    # plt.title('Area Under the Precision-Recall curve')
-    # plt.legend(loc="lower right")
-    # df = pd.DataFrame({'precisions': precisions, 'recalls': recalls})
+    plt.figure()
+    lw = 2
+    plt.plot(recalls, precisions, color='darkorange',
+             lw=lw, label=f'AUPR curve (area = {aupr:0.2f})')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Area Under the Precision-Recall curve')
+    plt.legend(loc="lower right")
+    df = pd.DataFrame({'precisions': precisions, 'recalls': recalls})
     # df.to_pickle(f'PR.pkl')
 
 def compute_roc(labels, preds):

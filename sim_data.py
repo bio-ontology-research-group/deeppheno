@@ -46,10 +46,10 @@ def main(hp_file, train_data_file, terms_file, dis_phenotypes, omim_file, predic
     terms = terms_df['terms'].values.flatten()
     terms_dict = {v: i for i, v in enumerate(terms)}
 
-    predictions_file = f'fold{fold}_' + predictions_file
-    gene_annots_file = f'fold{fold}_' + gene_annots_file
-    dis_annots_file = f'fold{fold}_' + dis_annots_file
-    real_annots_file = f'fold{fold}_data/gene_annotations_real.tab'
+    predictions_file = f'fold{fold}_exp-' + predictions_file
+    gene_annots_file = f'fold{fold}_exp-' + gene_annots_file
+    dis_annots_file = f'fold{fold}_exp-' + dis_annots_file
+    real_annots_file = f'fold{fold}_exp-data/gene_annotations_real.tab'
     
     diseases = set()
     genes = set()

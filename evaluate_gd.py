@@ -38,8 +38,8 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
     help='Fold index')
 def main(gene_annots_file, dis_annots_file, sim_file, gene_dis_assoc_file, fold):
     # Cross validation evaluation
-    sim_file = f'fold{fold}_' + sim_file
-    gene_annots_file = f'fold{fold}_' + gene_annots_file
+    sim_file = f'fold{fold}_exp-' + sim_file
+    gene_annots_file = f'fold{fold}_exp-' + gene_annots_file
 
     genes = []
     genes_dict = {}

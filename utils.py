@@ -185,7 +185,6 @@ class Ontology(object):
         for term_id in self.ont.keys():
             if len(self.ont[term_id]['is_a']) == 0:
                 dfs(term_id)
-        print(len(terms), len(term_set))
         return terms
 
 

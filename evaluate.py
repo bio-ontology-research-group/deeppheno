@@ -40,8 +40,8 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
     help='Root class for evaluation')
 def main(train_data_file, test_data_file, terms_file, out_file, root_class, fold):
     # Cross validation evaluation
-    # out_file = f'fold{fold}_' + out_file
-    # test_data_file = f'fold{fold}_' + test_data_file
+    out_file = f'fold{fold}_' + out_file
+    test_data_file = f'fold{fold}_' + test_data_file
     
     hp = Ontology('data/hp.obo', with_rels=True)
     terms_df = pd.read_pickle(terms_file)
@@ -75,8 +75,21 @@ def main(train_data_file, test_data_file, terms_file, out_file, root_class, fold
             auc_preds[i, j] = row.preds[terms_dict[hp_id]]
             if hp_id in labels[i]:
                 auc_labels[i, j] = 1
-    roc_auc = compute_roc(auc_labels, auc_preds)
+    # Compute macro AUROC
+    roc_auc = 0.0
+    total = 0
+    for i, hp_id in enumerate(auc_terms):
+        if np.sum(auc_labels[:, i]) == 0:
+            continue
+        total += 1
+        auc = compute_roc(auc_labels[:, i], auc_preds[:, i])
+        if not math.isnan(auc): 
+            roc_auc += auc
+        else:
+            roc_auc += 1
+    roc_auc /= total
     print(roc_auc)
+    return
     fmax = 0.0
     tmax = 0.0
     pmax = 0.0

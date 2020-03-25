@@ -32,6 +32,9 @@ logging.basicConfig(level=logging.INFO)
     '--string-mapping-file', '-smf', default='data/string2uni.tab',
     help='ELEmbeddings')
 @ck.option(
+    '--expressions-file', '-ef', default='data/E-MTAB-5214-query-results.tpms.tsv',
+    help='ELEmbeddings')
+@ck.option(
     '--out-terms-file', '-otf', default='data/terms.pkl',
     help='Terms for prediction')
 @ck.option(
@@ -41,7 +44,7 @@ logging.basicConfig(level=logging.INFO)
     '--min-count', '-mc', default=10,
     help='Min count of HP classes for prediction')
 def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
-         data_file, string_mapping_file,
+         data_file, string_mapping_file, expressions_file,
          out_data_file, out_terms_file, min_count):
     go = Ontology(go_file, with_rels=True)
     print('GO loaded')
@@ -61,11 +64,14 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
     
     print('Loading HP annotations')
     hp_annots = {}
+    name2gene = {}
     with open(hp_annots_file) as f:
         next(f)
         for line in f:
             it = line.strip().split('\t')
             gene_id = it[0]
+            gene_name = it[1].upper()
+            name2gene[gene_name] = gene_id
             hp_id = it[3]
             if gene_id not in hp_annots:
                 hp_annots[gene_id] = set()
@@ -73,7 +79,6 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
                 hp_annots[gene_id] |= hp.get_anchestors(hp_id)
     total_annots = 0
     for g_id, annots in hp_annots.items():
-        annots.discard('HP:0000001')
         total_annots += len(annots)
     print('HP Annotations', len(hp_annots), total_annots, (total_annots / len(hp_annots)))
     dg_annots = {}
@@ -122,7 +127,22 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
     for g_id, annots in hp_annots.items():
         for term in annots:
             cnt[term] += 1
-    
+
+    gene_exp = {}
+    max_val = 0
+    with open(expressions_file) as f:
+        for line in f:
+            if line.startswith('#') or line.startswith('Gene'):
+                continue
+            it = line.strip().split('\t')
+            gene_name = it[1].upper()
+            if gene_name in name2gene:
+                exp = np.zeros((53,), dtype=np.float32)
+                for i in range(len(it[2:])):
+                    exp[i] = float(it[2 + i]) if it[2 + i] != '' else 0.0
+                gene_exp[name2gene[gene_name]] = exp / np.max(exp)
+                
+    print('Expression values', len(gene_exp))
     
     deepgo_annotations = []
     go_annotations = []
@@ -130,6 +150,8 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
     hpos = []
     genes = []
     sequences = []
+    expressions = []
+    mis_exp = 0
     for g_id, phenos in hp_annots.items():
         if g_id not in dg_annots:
             continue
@@ -139,7 +161,13 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
         iea_annotations.append(iea_annots[g_id])
         deepgo_annotations.append(deepgo_annots[g_id])
         sequences.append(seqs[g_id])
-
+        if g_id in gene_exp:
+            expressions.append(gene_exp[g_id])
+        else:
+            expressions.append(np.zeros((53,), dtype=np.float32))
+            mis_exp += 1
+    print('Missing expressions', mis_exp)
+    
     # for g_id, gos in dg_annots.items():
     #     genes.append(g_id)
     #     phenos = set()
@@ -156,10 +184,10 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file, id_mapping_file,
         {'genes': genes, 'hp_annotations': hpos,
          'go_annotations': go_annotations, 'iea_annotations': iea_annotations,
          'deepgo_annotations': deepgo_annotations,
-         'sequences': sequences})
-    # df.to_pickle(out_data_file)
+         'sequences': sequences, 'expressions': expressions})
+    df.to_pickle(out_data_file)
     print(f'Number of proteins {len(df)}')
-    
+    print(df)
     # Filter terms with annotations more than min_count
     terms_set = set()
     all_terms = []

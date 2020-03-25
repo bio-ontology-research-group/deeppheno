@@ -26,6 +26,9 @@ logging.basicConfig(level=logging.INFO)
     '--data-file', '-df', default='data-cafa/swissprot.pkl',
     help='Uniprot KB, generated with uni2pandas.py')
 @ck.option(
+    '--expressions-file', '-ef', default='data/E-MTAB-5214-query-results.tpms.tsv',
+    help='ELEmbeddings')
+@ck.option(
     '--out-terms-file', '-otf', default='data-cafa/terms.pkl',
     help='Terms for prediction')
 @ck.option(
@@ -35,7 +38,7 @@ logging.basicConfig(level=logging.INFO)
     '--min-count', '-mc', default=10,
     help='Min count of HP classes for prediction')
 def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
-         data_file, out_data_file, out_terms_file, min_count):
+         data_file, expressions_file, out_data_file, out_terms_file, min_count):
     go = Ontology(go_file, with_rels=True)
     print('GO loaded')
     hp = Ontology(hp_file, with_rels=True)
@@ -46,13 +49,20 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
     seqs = {}
     df = pd.read_pickle(data_file)
     df = df[df['orgs'] == '9606']
-    
+
     acc2prot = {}
+    name2prot = {}
     for i, row in df.iterrows():
         accs = row['accessions'].split('; ')
+        names = row['gene_names']
         p_id = row['proteins']
         for acc in accs:
             acc2prot[acc] = p_id
+        for name in names:
+            name = name.upper()
+            if name not in name2prot:
+                name2prot[name] = set()
+            name2prot[name].add(p_id)
         if p_id not in go_annots:
             go_annots[p_id] = set()
         if p_id not in iea_annots:
@@ -101,16 +111,33 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
         deepgo_annots[g_id] = [go_id + '|' + str(score) for go_id, score in annots.items()]
     print('Number of GOs', len(gos))
     df = pd.DataFrame({'gos': list(gos)})
-    df.to_pickle('data-cafa/gos.pkl')
+    #df.to_pickle('data-cafa/gos.pkl')
 
     logging.info('Processing annotations')
     
     cnt = Counter()
     annotations = list()
-    for g_id, annots in hp_annots.items():
+    for p_id, annots in hp_annots.items():
         for term in annots:
             cnt[term] += 1
-    
+
+    gene_exp = {}
+    max_val = 0
+    with open(expressions_file) as f:
+        for line in f:
+            if line.startswith('#') or line.startswith('Gene'):
+                continue
+            it = line.strip().split('\t')
+            gene_name = it[1].upper()
+            if gene_name in name2prot:
+                exp = np.zeros((53,), dtype=np.float32)
+                for i in range(len(it[2:])):
+                    exp[i] = float(it[2 + i]) if it[2 + i] != '' else 0.0
+                for p_id in name2prot[gene_name]:
+                    gene_exp[p_id] = exp / np.max(exp)
+                
+    print('Expression values', len(gene_exp))
+
     
     deepgo_annotations = []
     go_annotations = []
@@ -118,6 +145,8 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
     hpos = []
     proteins = []
     sequences = []
+    expressions = []
+    mis_exp = 0
     for p_id, phenos in hp_annots.items():
         if p_id not in dg_annots:
             continue
@@ -127,12 +156,18 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
         iea_annotations.append(iea_annots[p_id])
         deepgo_annotations.append(deepgo_annots[p_id])
         sequences.append(seqs[p_id])
-        
+        if p_id in gene_exp:
+            expressions.append(gene_exp[p_id])
+        else:
+            expressions.append(np.zeros((53,), dtype=np.float32))
+            mis_exp += 1
+
+    print('Missing expressions', mis_exp)
     df = pd.DataFrame(
         {'proteins': proteins, 'hp_annotations': hpos,
          'go_annotations': go_annotations, 'iea_annotations': iea_annotations,
          'deepgo_annotations': deepgo_annotations,
-         'sequences': sequences})
+         'sequences': sequences, 'expressions': expressions})
     df.to_pickle(out_data_file)
     print(f'Number of proteins {len(df)}')
 
@@ -166,6 +201,8 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
     hpos = []
     proteins = []
     sequences = []
+    expressions = []
+    mis_exp = 0
     for p_id, phenos in test_annots.items():
         if p_id not in dg_annots:
             continue
@@ -175,13 +212,19 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
         iea_annotations.append(iea_annots[p_id])
         deepgo_annotations.append(deepgo_annots[p_id])
         sequences.append(seqs[p_id])
+        if p_id in gene_exp:
+            expressions.append(gene_exp[p_id])
+        else:
+            expressions.append(np.zeros((53,), dtype=np.float32))
+            mis_exp += 1
+
     df = pd.DataFrame(
         {'proteins': proteins, 'hp_annotations': hpos,
          'go_annotations': go_annotations,
          'iea_annotations': iea_annotations,
          'deepgo_annotations': deepgo_annotations,
-         'sequences': sequences})
-    
+         'sequences': sequences, 'expressions': expressions})
+    print('Missing expressions test', mis_exp)
     df.to_pickle('data-cafa/human_test.pkl')
     print(f'Number of test proteins {len(df)}')
 
@@ -201,11 +244,11 @@ def main(go_file, hp_file, hp_annots_file, deepgo_annots_file,
     
     logging.info(f'Number of terms {len(terms)}')
     # Save the list of terms
-    df = pd.DataFrame({'terms': terms})
-    df.to_pickle(out_terms_file)
+    # df = pd.DataFrame({'terms': terms})
+    # df.to_pickle(out_terms_file)
 
-    df = pd.DataFrame({'terms': all_terms})
-    df.to_pickle('data-cafa/all_terms.pkl')
+    # df = pd.DataFrame({'terms': all_terms})
+    # df.to_pickle('data-cafa/all_terms.pkl')
 
 
 

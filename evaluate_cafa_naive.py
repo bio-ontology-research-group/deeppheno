@@ -96,8 +96,21 @@ def main(benchmark_file, train_data_file, hpo_file, terms_file, root_class):
             auc_preds[i, j] = naive_annots[hp_id]
             if hp_id in labels[i]:
                 auc_labels[i, j] = 1
-    roc_auc = compute_roc(auc_labels, auc_preds)
+    # Compute macro AUROC
+    roc_auc = 0.0
+    total = 0
+    for i, hp_id in enumerate(auc_terms):
+        if np.sum(auc_labels[:, i]) == 0:
+            continue
+        total += 1
+        auc = compute_roc(auc_labels[:, i], auc_preds[:, i])
+        if not math.isnan(auc): 
+            roc_auc += auc
+        else:
+            roc_auc += 1
+    roc_auc /= total
     print(roc_auc)
+    return
     
     fmax = 0.0
     tmax = 0.0

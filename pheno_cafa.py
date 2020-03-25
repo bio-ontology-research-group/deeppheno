@@ -4,10 +4,8 @@ import click as ck
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import tensorflow_addons as tfa
 import logging
 import math
-import time
 from collections import deque
 
 from tensorflow.keras.models import Model, load_model
@@ -21,7 +19,6 @@ from tensorflow.keras.optimizers import Adam, RMSprop
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, CSVLogger
 from tensorflow.python.ops import math_ops
 from tensorflow.keras import regularizers
-
 
 from sklearn.metrics import roc_curve, auc, matthews_corrcoef
 from aminoacids import MAXLEN, to_onehot
@@ -51,6 +48,7 @@ class HPOLayer(Layer):
         return config
     
     def build(self, input_shape):
+        assert input_shape[1] == self.nb_classes
         self.kernel = K.variable(
             self.hpo_matrix, name='{}_kernel'.format(self.name))
         self.non_trainable_weights.append(self.kernel)
@@ -66,22 +64,22 @@ class HPOLayer(Layer):
 
 @ck.command()
 @ck.option(
-    '--hp-file', '-hf', default='data/hp.obo',
+    '--hp-file', '-hf', default='data-cafa/hp.obo',
     help='Human Phenotype Ontology file in OBO Format')
 @ck.option(
-    '--data-file', '-df', default='data/human.pkl',
+    '--data-file', '-df', default='data-cafa/human.pkl',
     help='Data file with sequences and complete set of annotations')
 @ck.option(
-    '--terms-file', '-tf', default='data/terms.pkl',
+    '--terms-file', '-tf', default='data-cafa/terms.pkl',
     help='Data file with sequences and complete set of annotations')
 @ck.option(
-    '--gos-file', '-gf', default='data/gos.pkl',
+    '--gos-file', '-gf', default='data-cafa/gos.pkl',
     help='DataFrame with list of GO classes (as features)')
 @ck.option(
-    '--model-file', '-mf', default='data/model.h5',
+    '--model-file', '-mf', default='data-cafa/model.h5',
     help='DeepGOPlus model')
 @ck.option(
-    '--out-file', '-o', default='data/predictions.pkl',
+    '--out-file', '-o', default='data-cafa/predictions.pkl',
     help='Result file with predictions for test set')
 @ck.option(
     '--fold', '-f', default=1,
@@ -95,7 +93,7 @@ class HPOLayer(Layer):
 @ck.option(
     '--load', '-ld', is_flag=True, help='Load Model?')
 @ck.option(
-    '--logger-file', '-lf', default='data/training.csv',
+    '--logger-file', '-lf', default='data-cafa/training.csv',
     help='Batch size')
 @ck.option(
     '--threshold', '-th', default=0.5,
@@ -111,15 +109,15 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
     gos_dict = {v: i for i, v in enumerate(gos)}
 
     # cross validation settings
-    model_file = f'fold{fold}_exp-' + model_file
-    out_file = f'fold{fold}_exp-' + out_file
+    # model_file = f'fold{fold}_' + model_file
+    # out_file = f'fold{fold}_' + out_file
     params = {
         'input_shape': (len(gos),),
         'exp_shape': 53,
         'nb_layers': 1,
         'loss': 'binary_crossentropy',
         'rate': 0.3,
-        'learning_rate': 0.0001,
+        'learning_rate': 0.001,
         'units': 1500, # 750
         'model_file': model_file
     }
@@ -230,15 +228,10 @@ def main(hp_file, data_file, terms_file, gos_file, model_file,
         print('Test loss %f' % loss)
 
         logging.info('Predicting')
-        start_time = time.time()
         preds = model.predict(test_x, batch_size=batch_size, verbose=1)
-        end_time = time.time()
-        run_time = (end_time - start_time)
-        n_genes = len(test_df)
-        print(f'Running time for {n_genes} is {run_time} sec') 
         flat_preds = flat_model.predict(test_x, batch_size=batch_size, verbose=1)
 
-        all_terms_df = pd.read_pickle('data/all_terms.pkl')
+        all_terms_df = pd.read_pickle('data-cafa/all_terms.pkl')
         all_terms = all_terms_df['terms'].values
         all_terms_dict = {v:k for k,v in enumerate(all_terms)}
         all_labels = np.zeros((len(test_df), len(all_terms)), dtype=np.int32)
@@ -281,36 +274,36 @@ def load_data(data_file, terms, fold=1):
     np.random.seed(seed=10)
     np.random.shuffle(index)
     index = list(index)
-    train_index = []
-    test_index = []
-    fn = n / 5
+    # train_index = []
+    # test_index = []
+    # fn = n / 5
     # 5 fold cross-validation
-    for i in range(1, 6):
-        start = int((i - 1) * fn)
-        end = int(i * fn)
-        if i == fold:
-            test_index += index[start:end]
-        else:
-            train_index += index[start:end]
-    assert n == len(test_index) + len(train_index)
-    train_df = df.iloc[train_index]
-    test_df = df.iloc[test_index]
+    # for i in range(1, 6):
+    #     start = int((i - 1) * fn)
+    #     end = int(i * fn)
+    #     if i == fold:
+    #         test_index += index[start:end]
+    #     else:
+    #         train_index += index[start:end]
+    # assert n == len(test_index) + len(train_index)
+    # train_df = df.iloc[train_index]
+    # test_df = df.iloc[test_index]
 
-    valid_n = int(len(train_df) * 0.9)
-    valid_df = train_df.iloc[valid_n:]
-    train_df = train_df.iloc[:valid_n]
+    # valid_n = int(len(train_df) * 0.9)
+    # valid_df = train_df.iloc[valid_n:]
+    # train_df = train_df.iloc[:valid_n]
      
-    # All Swissprot proteins
+    # all Swissprot proteins
     # train_n = int(n * 0.9)
     # train_df = df.iloc[index[:train_n]]
     # valid_df = df.iloc[index[train_n:]]
-    # test_df = pd.read_pickle('data/human_all.pkl')
+    # test_df = pd.read_pickle('data-cafa/human_all.pkl')
     
     # CAFA2 Test data
-    # train_n = int(n * 0.9)
-    # train_df = df.iloc[index[:train_n]]
-    # valid_df = df.iloc[index[train_n:]]
-    # test_df = pd.read_pickle('data-cafa/human_test.pkl')
+    train_n = int(n * 0.9)
+    train_df = df.iloc[index[:train_n]]
+    valid_df = df.iloc[index[train_n:]]
+    test_df = pd.read_pickle('data-cafa/human_test.pkl')
     print(len(df), len(train_df), len(valid_df), len(test_df))
     return train_df, valid_df, test_df
     
@@ -324,17 +317,13 @@ class MyHyperModel(HyperModel):
         inp = Input(shape=self.params['input_shape'], dtype=np.float32)
         exp_inp = Input(shape=self.params['exp_shape'], dtype=np.float32)
         net = inp
-        units = hp.Int('units', min_value=1000, max_value=3000, step=250)
-        dropout_rate = hp.Choice('rate', values=[0.3, 0.5])
-        nets = []
         for i in range(self.params['nb_layers']):
-            dense = Dense(
-                units=units,
-                name=f'dense_{i}', activation=tfa.activations.gelu)(net)
-            dense = Dropout(dropout_rate)(dense)
-            nets.append(dense)
-        nets.append(exp_inp)
-        net = Concatenate(axis=1)(nets)
+            net = Dense(
+                units=hp.Int(
+                    'units', min_value=250, max_value=2000, step=250),
+                name=f'dense_{i}', activation='relu')(net)
+            net = Dropout(hp.Choice('rate', values=[0.3, 0.5]))(net)
+        net = Concatenate(axis=1)([net, exp_inp])
         output = Dense(
             self.params['nb_classes'], activation='sigmoid',
             name='dense_out')(net)
@@ -435,13 +424,13 @@ class DFGenerator(Sequence):
                 if t_id in self.gos_dict:
                     data_gos[i, self.gos_dict[t_id]] = float(score)
 
-            for t_id in row.iea_annotations:
-                if t_id in self.gos_dict:
-                    data_gos[i, self.gos_dict[t_id]] = 1
+            # for t_id in row.iea_annotations:
+            #     if t_id in self.gos_dict:
+            #         data_gos[i, self.gos_dict[t_id]] = 1
 
-            for t_id in row.go_annotations:
-                if t_id in self.gos_dict:
-                    data_gos[i, self.gos_dict[t_id]] = 1
+            # for t_id in row.go_annotations:
+            #     if t_id in self.gos_dict:
+            #         data_gos[i, self.gos_dict[t_id]] = 1
                 
             for t_id in row.hp_annotations:
                 if t_id in self.terms_dict:

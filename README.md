@@ -1,7 +1,8 @@
-# DeepPheno: Predicting single gene knockout phenotypes
+# DeepPheno: Predicting single gene loss of function phenotypes
 
 DeepPheno is a method for predicting gene-phenotype (HPO classes)
-associations from gene functional annotations (GO classes).
+associations from gene functional annotations (GO classes) and gene
+expression values.
 
 
 This repository contains script which were used to build and train the
@@ -18,6 +19,7 @@ performance.
 used to train and evaluate our method.
  * data.tar.gz - data folder with latest dataset
  * data-cafa2.tar.gz - CAFA2 challenge dataset
+ * predictions.txt.gz - DeepPheno predictions for human genes
 
 ## Scripts
 The scripts require GeneOntology and Human Phenotype Ontology in OBO Format.
@@ -35,3 +37,8 @@ database format to pandas dataframe.
 * run `python pheno.py` to start training the model
 
 ## Citation
+If you use DeepPheno for your research, or incorporate our learning algorithms in your work, please cite:
+
+Maxat Kulmanov, Robert Hoehndorf; DeepPheno: Predicting single gene
+knockout phenotypes. BioArxiv, https://doi.org/10.1101/839332
+
