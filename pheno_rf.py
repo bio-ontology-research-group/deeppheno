@@ -9,7 +9,7 @@ import time
 from collections import deque
 
 from tensorflow.keras.utils import Sequence
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import roc_curve, auc, matthews_corrcoef, accuracy_score
 from aminoacids import MAXLEN, to_onehot
 from utils import Ontology, FUNC_DICT, is_exp_code
@@ -94,7 +94,7 @@ def main(hp_file, data_file, terms_file, gos_file,
     val_x, val_y = val_generator[0]
     test_x, test_y = test_generator[0]
     logging.info('Training RandomForest classifier')
-    clf = RandomForestClassifier(n_estimators=params['n_estimators'])
+    clf = RandomForestRegressor(n_estimators=params['n_estimators'])
     clf.fit(x, y)
     
     logging.info('Evaluating model')
