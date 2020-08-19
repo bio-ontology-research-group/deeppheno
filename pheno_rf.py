@@ -53,16 +53,19 @@ logging.basicConfig(level=logging.DEBUG)
 @ck.option(
     '--device', '-d', default='gpu:1',
     help='Prediction threshold')
+@ck.option(
+    '--estimators', '-es', default=10,
+    help='Random forest n_estimators')
 def main(hp_file, data_file, terms_file, gos_file,
          out_file, fold, batch_size, epochs, load, logger_file, threshold,
-         device):
+         device, estimators):
     gos_df = pd.read_pickle(gos_file)
     gos = gos_df['gos'].values.flatten()
     gos_dict = {v: i for i, v in enumerate(gos)}
 
     # cross validation settings
     out_file = f'fold{fold}_exp-' + out_file
-    params = {'n_estimators': 10}
+    params = {'n_estimators': estimators}
     print('Params:', params)
     global hpo
     hpo = Ontology(hp_file, with_rels=True)
