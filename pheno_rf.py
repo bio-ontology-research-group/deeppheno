@@ -62,7 +62,7 @@ def main(hp_file, data_file, terms_file, gos_file,
 
     # cross validation settings
     out_file = f'fold{fold}_exp-' + out_file
-    params = {'n_estimators': 100}
+    params = {'n_estimators': 10}
     print('Params:', params)
     global hpo
     hpo = Ontology(hp_file, with_rels=True)
