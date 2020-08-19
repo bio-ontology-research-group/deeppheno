@@ -74,7 +74,6 @@ def main(hp_file, data_file, terms_file, gos_file,
     term_set = set(terms)
     train_df, valid_df, test_df = load_data(data_file, terms, fold)
     terms_dict = {v: i for i, v in enumerate(terms)}
-    hpo_matrix = get_hpo_matrix(hpo, terms_dict)
     nb_classes = len(terms)
     params['nb_classes'] = nb_classes
     print(len(terms_dict))
