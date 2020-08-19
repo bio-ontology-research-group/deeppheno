@@ -100,7 +100,7 @@ def main(hp_file, data_file, terms_file, gos_file,
     print('Val accuracy', val_accuracy)
 
     preds = clf.predict(test_x)
-    test_accuracy = accuracy_score(test_preds, test_y)
+    test_accuracy = accuracy_score(preds, test_y)
     print('Test accuracy', test_accuracy)
 
     all_terms_df = pd.read_pickle('data/all_terms.pkl')
