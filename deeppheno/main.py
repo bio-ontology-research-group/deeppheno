@@ -11,12 +11,13 @@ import time
 from collections import deque
 
 from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.layers import Layer
 from tensorflow.keras import backend as K
 from tensorflow.keras.utils import Sequence
 
 from sklearn.metrics import roc_curve, auc, matthews_corrcoef
-from aminoacids import MAXLEN, to_onehot
-from utils import Ontology, FUNC_DICT, is_exp_code
+from deeppheno.aminoacids import MAXLEN, to_onehot
+from deeppheno.utils import Ontology, FUNC_DICT, is_exp_code
 
 from kerastuner.tuners import RandomSearch
 from kerastuner import HyperModel
@@ -57,6 +58,9 @@ class HPOLayer(Layer):
 
 @ck.command()
 @ck.option(
+    '--in-file', '-if',
+    help='Input file. List of genes with GO annotations (tab-separated)')
+@ck.option(
     '--hp-file', '-hf', default='data/hp.obo',
     help='Human Phenotype Ontology file in OBO Format')
 @ck.option(
@@ -83,7 +87,7 @@ class HPOLayer(Layer):
 @ck.option(
     '--threshold', '-th', default=0.5,
     help='Prediction threshold')
-def main(hp_file, data_file, terms_file, gos_file, exp_file,
+def main(in_file, hp_file, terms_file, gos_file, exp_file,
          id_mapping_file, model_file, out_file, batch_size, threshold):
     gos_df = pd.read_pickle(gos_file)
     gos = gos_df['gos'].values.flatten()
@@ -96,7 +100,7 @@ def main(hp_file, data_file, terms_file, gos_file, exp_file,
     terms = terms_df['terms'].values.flatten()
     global term_set
     term_set = set(terms)
-    df = load_data(data_file, exp_file)
+    df = load_data(in_file, exp_file)
     terms_dict = {v: i for i, v in enumerate(terms)}
     nb_classes = len(terms)
     params['nb_classes'] = nb_classes
@@ -117,7 +121,7 @@ def main(hp_file, data_file, terms_file, gos_file, exp_file,
                 f.write(f'\t{terms[j]}|{preds[i, j]:.3f}')
             f.write('\n')
 
-def load_data(data_file, exp_file):
+def load_data(in_file, exp_file):
     gene_exp = {}
     with open(exp_file) as f:
         for line in f:
@@ -132,7 +136,7 @@ def load_data(data_file, exp_file):
     annotations = []
     expressions = []
     genes = []
-    with open(data_file) as f:
+    with open(in_file) as f:
         for line in f:
             it = line.strip().split('\t')
             gene_name = it[0].upper()
