@@ -14,12 +14,19 @@ performance.
 * To install python dependencies run:
   `pip install -r requirements.txt`
 
+## Installation
+* To install deeppheno package:
+  `pip install deeppheno`
+
 ## Data
 * https://bio2vec.cbrc.kaust.edu.sa/data/deeppheno/ - Here you can find the data
 used to train and evaluate our method.
  * data.tar.gz - data folder with latest dataset
  * data-cafa2.tar.gz - CAFA2 challenge dataset
  * predictions.txt.gz - DeepPheno predictions for human genes
+
+## Running the prediction model
+  `deeppheno --data-root <path to data folder> --in-file <input-file>`
 
 ## Scripts
 The scripts require GeneOntology and Human Phenotype Ontology in OBO Format.
@@ -32,7 +39,7 @@ database format to pandas dataframe.
 * GeneDis.groovy - This script is used to compute semantic similarity
   between gene and disease phenotypes
 
-## Running
+## Training
 * Download all the files from https://bio2vec.cbrc.kaust.edu.sa/data/deeppheno/data.tar.gz and place them into data folder
 * run `python pheno.py` to start training the model
 
