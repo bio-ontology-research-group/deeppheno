@@ -8,6 +8,8 @@ import tensorflow_addons as tfa
 import logging
 import math
 import time
+import sys
+import os
 from collections import deque
 
 from tensorflow.keras.models import Model, load_model
@@ -23,8 +25,6 @@ from kerastuner.tuners import RandomSearch
 from kerastuner import HyperModel
 
 logging.basicConfig(level=logging.DEBUG)
-
-print("GPU Available: ", tf.test.is_gpu_available())
 
 
 class HPOLayer(Layer):
@@ -57,29 +57,30 @@ class HPOLayer(Layer):
 
 
 @ck.command()
+@ck.option('--data-root', '-dr', default='data/', help='Data root folder', required=True)
 @ck.option(
-    '--in-file', '-if',
-    help='Input file. List of genes with GO annotations (tab-separated)')
+    '--in-file', '-if', required=True,
+    help='Input file. TSV file with a list of genes with GO annotations (semicolon-space separated)')
 @ck.option(
-    '--hp-file', '-hf', default='data/hp.obo',
+    '--hp-file', '-hf', default='hp.obo',
     help='Human Phenotype Ontology file in OBO Format')
 @ck.option(
-    '--terms-file', '-tf', default='data/terms.pkl',
+    '--go-file', '-gof', default='go.obo',
+    help='Gene Ontology file in OBO Format')
+@ck.option(
+    '--terms-file', '-tf', default='terms.pkl',
     help='Data file with sequences and complete set of annotations')
 @ck.option(
-    '--gos-file', '-gf', default='data/gos.pkl',
+    '--gos-file', '-gf', default='gos.pkl',
     help='DataFrame with list of GO classes (as features)')
 @ck.option(
-    '--exp-file', '-ef', default='data/E-MTAB-5214-query-results.tpms.tsv',
+    '--exp-file', '-ef', default='E-MTAB-5214-query-results.tpms.tsv',
     help='DataFrame with list of GO classes (as features)')
 @ck.option(
-    '--id-mapping-file', '-imf', default='data/gene2prot.tab',
-    help='Uniprot KB, generated with uni2pandas.py')
+    '--model-file', '-mf', default='model.h5',
+    help='DeepPheno model')
 @ck.option(
-    '--model-file', '-mf', default='data/model.h5',
-    help='DeepGOPlus model')
-@ck.option(
-    '--out-file', '-o', default='data/predictions.tsv',
+    '--out-file', '-o', default='predictions.tsv',
     help='Result file with predictions')
 @ck.option(
     '--batch-size', '-bs', default=32,
@@ -87,8 +88,35 @@ class HPOLayer(Layer):
 @ck.option(
     '--threshold', '-th', default=0.5,
     help='Prediction threshold')
-def main(in_file, hp_file, terms_file, gos_file, exp_file,
-         id_mapping_file, model_file, out_file, batch_size, threshold):
+def main(data_root, in_file, hp_file, go_file, terms_file, gos_file, exp_file,
+         model_file, out_file, batch_size, threshold):
+    # Check data folder and required files
+    try:
+        if os.path.exists(data_root):
+            hp_file = os.path.join(data_root, hp_file)
+            go_file = os.path.join(data_root, go_file)
+            model_file = os.path.join(data_root, model_file)
+            terms_file = os.path.join(data_root, terms_file)
+            gos_file = os.path.join(data_root, gos_file)
+            exp_file = os.path.join(data_root, exp_file)
+            if not os.path.exists(go_file):
+                raise Exception(f'Gene Ontology file ({go_file}) is missing!')
+            if not os.path.exists(hp_file):
+                raise Exception(f'Human Phenotype Ontology file ({hp_file}) is missing!')
+            if not os.path.exists(model_file):
+                raise Exception(f'Model file ({model_file}) is missing!')
+            if not os.path.exists(terms_file):
+                raise Exception(f'Terms file ({terms_file}) is missing!')
+            if not os.path.exists(gos_file):
+                raise Exception(f'GOs file ({gos_file}) is missing!')
+            if not os.path.exists(exp_file):
+                raise Exception(f'Expressions file ({exp_file}) is missing!')
+        else:
+            raise Exception(f'Data folder {data_root} does not exist!')
+    except Exception as e:
+        logging.error(e)
+        sys.exit(1)
+
     gos_df = pd.read_pickle(gos_file)
     gos = gos_df['gos'].values.flatten()
     gos_dict = {v: i for i, v in enumerate(gos)}
@@ -103,14 +131,17 @@ def main(in_file, hp_file, terms_file, gos_file, exp_file,
     df = load_data(in_file, exp_file)
     terms_dict = {v: i for i, v in enumerate(terms)}
     nb_classes = len(terms)
+    params = {}
     params['nb_classes'] = nb_classes
     print(len(terms_dict))
     steps = int(math.ceil(len(df) / batch_size))
     generator = DFGenerator(df, gos_dict, terms_dict,
                                  len(df))
-    x = generator[0]
+    x, y = generator[0]
+
     print('Loading pretrained model')
     model = load_model(model_file, custom_objects={'HPOLayer': HPOLayer})
+    model.summary()
     preds = model.predict(x)
     with open(out_file, 'w') as f:
         for i, row in enumerate(df.itertuples()):
@@ -128,7 +159,7 @@ def load_data(in_file, exp_file):
             if line.startswith('#') or line.startswith('Gene'):
                 continue
             it = line.strip().split('\t')
-            gene_name = it[1].upper()
+            gene_name = it[1].split()[0].upper()
             exp = np.zeros((53,), dtype=np.float32)
             for i in range(len(it[2:])):
                 exp[i] = float(it[2 + i]) if it[2 + i] != '' else 0.0
@@ -139,8 +170,9 @@ def load_data(in_file, exp_file):
     with open(in_file) as f:
         for line in f:
             it = line.strip().split('\t')
+            print(it)
             gene_name = it[0].upper()
-            annots = it[1:]
+            annots = it[1].split('; ')
             exp = np.zeros((53,), dtype=np.float32)
             if gene_name in gene_exp:
                 exp = gene_exp[gene_name]

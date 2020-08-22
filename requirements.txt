@@ -7,6 +7,7 @@ Click==7.0
 colorama==0.4.3
 cycler==0.10.0
 Cython==0.29.14
+deeppheno @ file:///home/kulmanm/KAUST/CBRC/exome2pheno
 gast==0.2.2
 google-auth==1.7.1
 google-auth-oauthlib==0.4.1
@@ -41,14 +42,15 @@ scipy==1.4.1
 six==1.13.0
 tabulate==0.8.6
 tb-nightly==1.14.0a20190603
-tensorboard==2.1.0
-tensorflow==2.1.0rc2
-tensorflow-estimator==2.1.0
-tensorflow-gpu==2.1.0rc2
+tensorboard==2.0.2
+tensorflow==2.0.0
+tensorflow-addons==0.6.0
+tensorflow-estimator==2.0.1
 termcolor==1.1.0
 terminaltables==3.1.0
 tf-estimator-nightly==1.14.0.dev2019060501
 tqdm==4.41.1
+typeguard==2.7.1
 urllib3==1.25.7
 Werkzeug==0.16.0
 wrapt==1.11.2
