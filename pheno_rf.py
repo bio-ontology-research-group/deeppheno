@@ -13,6 +13,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import roc_curve, auc, matthews_corrcoef, accuracy_score
 from aminoacids import MAXLEN, to_onehot
 from utils import Ontology, FUNC_DICT, is_exp_code
+from joblib import dump, load
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -43,7 +44,7 @@ logging.basicConfig(level=logging.DEBUG)
     '--epochs', '-e', default=1024,
     help='Training epochs')
 @ck.option(
-    '--load', '-ld', is_flag=True, help='Load Model?')
+    '--load_model', '-ld', is_flag=True, help='Load Model?')
 @ck.option(
     '--logger-file', '-lf', default='data/training.csv',
     help='Batch size')
@@ -57,7 +58,7 @@ logging.basicConfig(level=logging.DEBUG)
     '--estimators', '-es', default=10,
     help='Random forest n_estimators')
 def main(hp_file, data_file, terms_file, gos_file,
-         out_file, fold, batch_size, epochs, load, logger_file, threshold,
+         out_file, fold, batch_size, epochs, load_model, logger_file, threshold,
          device, estimators):
     gos_df = pd.read_pickle(gos_file)
     gos = gos_df['gos'].values.flatten()
@@ -93,18 +94,23 @@ def main(hp_file, data_file, terms_file, gos_file,
                                   len(valid_df))
     val_x, val_y = val_generator[0]
     test_x, test_y = test_generator[0]
-    logging.info('Training RandomForest classifier')
-    clf = RandomForestRegressor(n_estimators=params['n_estimators'])
-    clf.fit(x, y)
+    if load_model:
+        logging.info(f'Loading RandomForest_{estimators} classifier')
+        clf = load(f'data/rf_{estimators}.joblib')
+    else:
+        logging.info('Training RandomForest classifier')
+        clf = RandomForestRegressor(n_estimators=params['n_estimators'])
+        clf.fit(x, y)
+        dump(clf, f'data/rf_{estimators}.joblib')
     
     logging.info('Evaluating model')
     val_preds = clf.predict(val_x)
-    val_accuracy = accuracy_score(val_preds, val_y)
-    print('Val accuracy', val_accuracy)
+    # val_accuracy = accuracy_score(val_preds, val_y)
+    # print('Val accuracy', val_accuracy)
 
     preds = clf.predict(test_x)
-    test_accuracy = accuracy_score(preds, test_y)
-    print('Test accuracy', test_accuracy)
+    # test_accuracy = accuracy_score(preds, test_y)
+    # print('Test accuracy', test_accuracy)
 
     all_terms_df = pd.read_pickle('data/all_terms.pkl')
     all_terms = all_terms_df['terms'].values
@@ -116,15 +122,12 @@ def main(hp_file, data_file, terms_file, gos_file,
                 all_labels[i, all_terms_dict[hp_id]] = 1
 
     all_preds = np.zeros((len(test_df), len(all_terms)), dtype=np.float32)
-    all_flat_preds = np.zeros((len(test_df), len(all_terms)), dtype=np.float32)
     for i in range(len(test_df)):
         for j in range(nb_classes):
             all_preds[i, all_terms_dict[terms[j]]] = preds[i, j]
     logging.info('Computing performance:')
     roc_auc = compute_roc(all_labels, all_preds)
     print('ROC AUC: %.2f' % (roc_auc,))
-    flat_roc_auc = compute_roc(all_labels, all_flat_preds)
-    print('FLAT ROC AUC: %.2f' % (flat_roc_auc,))
     test_df['preds'] = list(preds)
     print(test_df)
     logging.info('Saving predictions')
