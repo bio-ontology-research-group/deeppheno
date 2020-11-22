@@ -46,6 +46,6 @@ database format to pandas dataframe.
 ## Citation
 If you use DeepPheno for your research, or incorporate our learning algorithms in your work, please cite:
 
-Maxat Kulmanov, Robert Hoehndorf; DeepPheno: Predicting single gene
-knockout phenotypes. BioArxiv, https://doi.org/10.1101/839332
+Maxat Kulmanov, Robert Hoehndorf; DeepPheno: Predicting single gene loss-of-function phenotypes using an ontology-aware hierarchical classifier. PLoS Computational Biology, 2020. https://doi.org/10.1371/journal.pcbi.1008453
+
 
